@@ -1,6 +1,10 @@
 # Storefront Ratings
 
+[![Quality checks](https://github.com/MrPrathameshGadhave/storefront-ratings/actions/workflows/ci.yml/badge.svg)](https://github.com/MrPrathameshGadhave/storefront-ratings/actions/workflows/ci.yml)
+
 > A secure, role-based platform for discovering stores and managing one rating per customer — built for the **FullStack Intern Coding Challenge · V1.1**.
+
+**Repository:** [github.com/MrPrathameshGadhave/storefront-ratings](https://github.com/MrPrathameshGadhave/storefront-ratings)
 
 Storefront Ratings gives each participant a focused experience: customers discover and rate stores, store owners understand feedback for their own store, and administrators manage the whole platform from one place. The project is deliberately built as a complete full-stack submission, with validation, authorization, testing, local email verification, database migrations, and production-build support included.
 

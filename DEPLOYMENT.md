@@ -101,15 +101,15 @@ Before deploying, provision a **managed PostgreSQL database**. A local Docker da
 reachable from Vercel. Add these environment variables in the Vercel project's **Production**
 environment (and Preview too if preview testing is desired):
 
-| Variable | Production value |
-| --- | --- |
-| `NODE_ENV` | `production` |
-| `DATABASE_URL` | Managed PostgreSQL connection string, including `?schema=public` |
-| `JWT_SECRET` | New random secret of at least 32 characters |
-| `JWT_EXPIRES_IN` | `8h`, or the chosen session lifetime |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Real SMTP-provider configuration |
-| `TRUST_PROXY` | `true` |
-| `CLIENT_ORIGIN` | The final Vercel production URL, such as `https://storefront-ratings.vercel.app` |
+| Variable                                                            | Production value                                                                 |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `NODE_ENV`                                                          | `production`                                                                     |
+| `DATABASE_URL`                                                      | Managed PostgreSQL connection string, including `?schema=public`                 |
+| `JWT_SECRET`                                                        | New random secret of at least 32 characters                                      |
+| `JWT_EXPIRES_IN`                                                    | `8h`, or the chosen session lifetime                                             |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Real SMTP-provider configuration                                                 |
+| `TRUST_PROXY`                                                       | `true`                                                                           |
+| `CLIENT_ORIGIN`                                                     | The final Vercel production URL, such as `https://storefront-ratings.vercel.app` |
 
 Then:
 

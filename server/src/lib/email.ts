@@ -32,11 +32,30 @@ const getTransport = () => {
   });
 };
 
+const emailDeliveryFailed = (): AppError =>
+  new AppError(
+    503,
+    "EMAIL_DELIVERY_FAILED",
+    "We could not send your verification email. Please try again later.",
+  );
+
+const recipientDeliveryFailure = (delivery: {
+  accepted?: unknown;
+  rejected?: unknown;
+}): "recipient_rejected" | "no_accepted_recipients" | undefined => {
+  const accepted = Array.isArray(delivery.accepted) ? delivery.accepted : [];
+  const rejected = Array.isArray(delivery.rejected) ? delivery.rejected : [];
+
+  if (rejected.length > 0) return "recipient_rejected";
+  if (accepted.length === 0) return "no_accepted_recipients";
+  return undefined;
+};
+
 export const sendVerificationEmail = async (email: string, otp: string): Promise<void> => {
   const transport = getTransport();
   const safeOtp = escapeHtml(otp);
   try {
-    await transport.sendMail({
+    const delivery = await transport.sendMail({
       from: env.smtpFrom,
       to: email,
       subject: "Your Storefront Ratings verification code",
@@ -56,18 +75,18 @@ export const sendVerificationEmail = async (email: string, otp: string): Promise
           <p>If you did not request this, you can safely ignore this email.</p>
         </div>`,
     });
+
+    const failure = recipientDeliveryFailure(delivery);
+    if (failure) {
+      // Do not log the SMTP response: it can include the recipient address or provider details.
+      console.error("Verification email delivery failed.", { reason: failure });
+      throw emailDeliveryFailed();
+    }
   } catch (error) {
-    // Check if it's already an AppError
     if (error instanceof AppError) throw error;
 
-    // Log the actual error for debugging
-    console.error("Email send error:", error);
-
-    // Throw a user-friendly AppError
-    throw new AppError(
-      503,
-      "EMAIL_DELIVERY_FAILED",
-      "We could not send your verification email. Please try again later.",
-    );
+    // SMTP errors can include provider responses, recipient addresses, or message metadata.
+    console.error("Verification email delivery failed.", { reason: "smtp_error" });
+    throw emailDeliveryFailed();
   }
 };

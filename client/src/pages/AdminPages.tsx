@@ -17,6 +17,7 @@ import {
   getRecord,
   getString,
   isRecord,
+  isUserRole,
   parseAuthUser,
   parseList,
   parseStore,
@@ -203,7 +204,244 @@ export function AdminDashboardPage() {
           </div>
           <span aria-hidden="true">→</span>
         </Link>
+        <Link to="/admin/invitations" className="quick-link-card">
+          <span className="quick-link-card__icon" aria-hidden="true">
+            ✉
+          </span>
+          <div>
+            <h2>Private invitations</h2>
+            <p>Create one-time registration links for administrators and store owners.</p>
+          </div>
+          <span aria-hidden="true">→</span>
+        </Link>
       </div>
+    </section>
+  );
+}
+
+type InvitableRole = Extract<UserRole, "ADMIN" | "STORE_OWNER">;
+
+interface InvitationFields {
+  email: string;
+  role: InvitableRole;
+}
+
+interface CreatedInvitation {
+  token: string;
+  code: string;
+  role: InvitableRole;
+  expiresAt: string;
+  email: string;
+}
+
+const initialInvitation: InvitationFields = { email: "", role: "STORE_OWNER" };
+
+function isInvitableRole(value: unknown): value is InvitableRole {
+  return isUserRole(value) && value !== "NORMAL_USER";
+}
+
+function parseCreatedInvitation(value: unknown): CreatedInvitation | null {
+  if (!isRecord(value) || !isInvitableRole(value.role)) {
+    return null;
+  }
+
+  const token = getString(value.token);
+  const code = getString(value.code);
+  const expiresAt = getString(value.expiresAt);
+  const email = getString(value.email);
+  if (!token || !code || !expiresAt || !email) {
+    return null;
+  }
+
+  return { token, code, role: value.role, expiresAt, email };
+}
+
+function invitationPath(role: InvitableRole, token: string): string {
+  const roleSegment = role === "ADMIN" ? "admin" : "store-owner";
+  return `/register/${roleSegment}/${encodeURIComponent(token)}`;
+}
+
+function invitationExpiry(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) {
+    return "the stated expiry time";
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+export function AdminInvitationsPage() {
+  const { showToast } = useToast();
+  const [fields, setFields] = useState<InvitationFields>(initialInvitation);
+  const [errors, setErrors] = useState<ValidationErrors>({});
+  const [formError, setFormError] = useState("");
+  const [copyError, setCopyError] = useState("");
+  const [createdInvitation, setCreatedInvitation] = useState<CreatedInvitation | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const updateField =
+    (field: keyof InvitationFields) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+      const value = event.target.value;
+      setFields((current) => ({ ...current, [field]: value }) as InvitationFields);
+      setErrors((current) => ({ ...current, [field]: "" }));
+      setFormError("");
+      setCopyError("");
+      setCreatedInvitation(null);
+    };
+
+  const createInvitation = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextErrors: ValidationErrors = {};
+    const emailError = validateEmail(fields.email);
+    if (emailError) {
+      nextErrors.email = emailError;
+    }
+    setErrors(nextErrors);
+    setFormError("");
+    setCopyError("");
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await apiRequest<unknown>("/admin/invitations", {
+        method: "POST",
+        body: JSON.stringify({ email: normalizeEmail(fields.email), role: fields.role }),
+      });
+      const invitation = parseCreatedInvitation(response);
+      if (!invitation) {
+        throw new Error("The invitation response was incomplete.");
+      }
+      setCreatedInvitation(invitation);
+      showToast("Private invitation created. Copy the link and code now.", "success");
+    } catch (error) {
+      setErrors((current) => ({ ...current, ...apiFieldErrors(error) }));
+      setFormError(apiMessage(error, "We could not create this private invitation."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const copySecret = async (value: string, label: string) => {
+    setCopyError("");
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast(`${label} copied.`, "success");
+    } catch {
+      setCopyError(
+        `Copying is not available here. Select the ${label.toLowerCase()} and copy it manually.`,
+      );
+    }
+  };
+
+  const registrationLink = createdInvitation
+    ? new URL(
+        invitationPath(createdInvitation.role, createdInvitation.token),
+        window.location.origin,
+      ).toString()
+    : "";
+
+  return (
+    <section className="page-container page-container--narrow">
+      <PageHeader
+        title="Private invitations"
+        description="Create a one-time registration link for an administrator or store owner. The role is locked to the invitation."
+        action={
+          <Link className="button button--secondary" to="/admin/users">
+            Back to users
+          </Link>
+        }
+      />
+      <form className="surface-card form-stack" onSubmit={createInvitation} noValidate>
+        {formError ? <InlineAlert>{formError}</InlineAlert> : null}
+        <TextField
+          id="invitation-email"
+          label="Invitee email address"
+          type="email"
+          value={fields.email}
+          onChange={updateField("email")}
+          error={errors.email}
+          hint="The invite can only be used to create an account for this email address."
+          autoComplete="email"
+          required
+        />
+        <div className="field">
+          <label htmlFor="invitation-role">
+            Account role <span aria-hidden="true">*</span>
+          </label>
+          <select id="invitation-role" value={fields.role} onChange={updateField("role")}>
+            <option value="STORE_OWNER">Store owner</option>
+            <option value="ADMIN">Administrator</option>
+          </select>
+          <p className="field__hint">This permission cannot be changed by the invitee.</p>
+        </div>
+        <div className="form-actions">
+          <button type="submit" className="button button--primary" disabled={isSubmitting}>
+            {isSubmitting ? "Creating invitation…" : "Create private invitation"}
+          </button>
+        </div>
+      </form>
+
+      {createdInvitation ? (
+        <section className="invite-result" aria-live="polite">
+          <div className="invite-result__heading">
+            <div>
+              <p className="eyebrow">Invitation ready</p>
+              <h2>Share these two confidential details</h2>
+            </div>
+            <span className={`role-badge role-badge--${createdInvitation.role.toLowerCase()}`}>
+              {roleLabel(createdInvitation.role)}
+            </span>
+          </div>
+          <p>
+            This invitation is bound to <strong>{createdInvitation.email}</strong> and expires on{" "}
+            {invitationExpiry(createdInvitation.expiresAt)}. It is displayed only once, so copy it
+            now.
+          </p>
+          <div className="invite-secret">
+            <label htmlFor="invitation-link">Confidential registration link</label>
+            <div className="invite-secret__value">
+              <input
+                id="invitation-link"
+                value={registrationLink}
+                readOnly
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <button
+                type="button"
+                className="button button--secondary"
+                onClick={() => void copySecret(registrationLink, "Registration link")}
+              >
+                Copy link
+              </button>
+            </div>
+          </div>
+          <div className="invite-secret">
+            <label htmlFor="invitation-code">Registration code</label>
+            <div className="invite-secret__value">
+              <input
+                id="invitation-code"
+                value={createdInvitation.code}
+                readOnly
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <button
+                type="button"
+                className="button button--secondary"
+                onClick={() => void copySecret(createdInvitation.code, "Registration code")}
+              >
+                Copy code
+              </button>
+            </div>
+          </div>
+          {copyError ? <InlineAlert>{copyError}</InlineAlert> : null}
+        </section>
+      ) : null}
     </section>
   );
 }

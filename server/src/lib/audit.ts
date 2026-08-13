@@ -23,13 +23,15 @@ export type AuditAction =
   | "EMAIL_VERIFIED"
   | "OTP_GENERATED"
   | "OTP_VERIFIED"
-  | "OTP_RESENT";
+  | "OTP_RESENT"
+  | "PRIVILEGED_INVITATION_CREATED"
+  | "PRIVILEGED_INVITATION_REDEEMED";
 
 export interface AuditLog {
   action: AuditAction;
   actorId?: string; // The user performing the action
   actorRole?: string; // The role of the actor
-  resourceType: "USER" | "STORE" | "RATING" | "SESSION";
+  resourceType: "USER" | "STORE" | "RATING" | "SESSION" | "INVITATION";
   resourceId?: string; // The ID of the resource being acted upon
   changes?: Record<string, unknown>; // What changed (for updates)
   status: "SUCCESS" | "FAILURE";

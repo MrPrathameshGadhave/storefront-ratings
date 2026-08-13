@@ -10,12 +10,13 @@ The production application is live at [storefront-ratings.vercel.app](https://st
 
 ## Requirement coverage
 
-The implementation includes the assignment's three roles, registration/login, ratings, search, sortable lists, administrator reporting, Store Owner reporting, required validation, and database constraints. It also includes responsive UI, secure OTP email verification, error/loading states, deployment configuration, automated tests, and traceability. See [REQUIREMENTS.md](REQUIREMENTS.md) for the evidence ledger.
+The implementation includes the assignment's three roles, registration/login, ratings, search, sortable lists, administrator reporting, Store Owner reporting, required validation, and database constraints. It also includes responsive UI, secure OTP email verification, confidential privileged-role invitations, error/loading states, deployment configuration, automated tests, and traceability. See [REQUIREMENTS.md](REQUIREMENTS.md) for the evidence ledger.
 
 ## Implemented capabilities
 
 - Normal-user registration, email verification, login, logout, and password change.
 - Six-digit OTP verification with ten-minute expiry, HMAC-hashed storage, five-attempt limit, 60-second resend cooldown, code replacement, and endpoint rate limits.
+- Administrator-issued, email-bound invitations for Administrator and Store Owner accounts, with a confidential URL, separate eight-character code, 72-hour lifetime, one-time redemption, and server-derived role.
 - Store directory with name/address search, sorting, calculated average, personal rating, and an updateable 1–5 rating dialog.
 - Administrator totals; searchable, filterable, sortable user and store lists; user details; account and store creation.
 - Store Owner dashboard for the assigned store's average and rater list.
@@ -87,29 +88,36 @@ Each rating has an ID, integer value, user ID, store ID, and timestamps. Postgre
 
 This temporary record stores a prospective normal user's fields, password hash, OTP HMAC hash, expiry time, attempt counter, and resend time. It is removed after successful verification or when an expired code is used.
 
+### PrivilegedInvitation
+
+This temporary record represents an Administrator-created invitation for either `ADMIN` or `STORE_OWNER`. It stores the invited email, role, creator, expiry, use timestamp, and code-attempt counter. The confidential URL token and eight-character registration code are never stored in plaintext: only separate HMAC hashes are persisted. A one-time conditional update consumes the record before the account is created.
+
 ## API reference
 
 Success responses use the data envelope. Failures use the error envelope with a code, message, and optional fields object.
 
-| Method   | Route                         | Access      | Purpose                                     |
-| -------- | ----------------------------- | ----------- | ------------------------------------------- |
-| GET      | /api/health                   | Public      | Database health check                       |
-| GET      | /api/docs                     | Public      | Swagger UI                                  |
-| GET      | /api/docs/openapi.json        | Public      | OpenAPI document                            |
-| POST     | /api/auth/register            | Public      | Start normal-user registration and send OTP |
-| POST     | /api/auth/verify-email        | Public      | Verify OTP and create account               |
-| POST     | /api/auth/resend-verification | Public      | Send replacement OTP after cooldown         |
-| POST     | /api/auth/login               | Public      | Start secure session                        |
-| POST     | /api/auth/logout              | Session     | End session                                 |
-| GET      | /api/auth/me                  | Session     | Current authenticated user                  |
-| PATCH    | /api/auth/password            | Session     | Change password with current password       |
-| GET      | /api/stores                   | Normal User | Store list with search and sort             |
-| PUT      | /api/stores/:storeId/rating   | Normal User | Create or update a rating                   |
-| GET      | /api/admin/dashboard          | Admin       | User/store/rating totals                    |
-| GET/POST | /api/admin/users              | Admin       | List/filter/sort or provision users         |
-| GET      | /api/admin/users/:userId      | Admin       | User details and owner-store rating detail  |
-| GET/POST | /api/admin/stores             | Admin       | List/search/sort or create stores           |
-| GET      | /api/owner/dashboard          | Store Owner | Assigned store and its raters               |
+| Method   | Route                                 | Access                   | Purpose                                                                |
+| -------- | ------------------------------------- | ------------------------ | ---------------------------------------------------------------------- |
+| GET      | /api/health                           | Public                   | Database health check                                                  |
+| GET      | /api/docs                             | Public                   | Swagger UI                                                             |
+| GET      | /api/docs/openapi.json                | Public                   | OpenAPI document                                                       |
+| POST     | /api/auth/register                    | Public                   | Start normal-user registration and send OTP                            |
+| GET      | /api/auth/invitations/:token          | Confidential link        | Validate a privileged invitation and return safe, role-locked metadata |
+| POST     | /api/auth/invitations/:token/register | Confidential link + code | Redeem an invitation and create its server-derived account             |
+| POST     | /api/auth/verify-email                | Public                   | Verify OTP and create account                                          |
+| POST     | /api/auth/resend-verification         | Public                   | Send replacement OTP after cooldown                                    |
+| POST     | /api/auth/login                       | Public                   | Start secure session                                                   |
+| POST     | /api/auth/logout                      | Session                  | End session                                                            |
+| GET      | /api/auth/me                          | Session                  | Current authenticated user                                             |
+| PATCH    | /api/auth/password                    | Session                  | Change password with current password                                  |
+| GET      | /api/stores                           | Normal User              | Store list with search and sort                                        |
+| PUT      | /api/stores/:storeId/rating           | Normal User              | Create or update a rating                                              |
+| GET      | /api/admin/dashboard                  | Admin                    | User/store/rating totals                                               |
+| POST     | /api/admin/invitations                | Admin                    | Create a confidential `ADMIN` or `STORE_OWNER` invitation              |
+| GET/POST | /api/admin/users                      | Admin                    | List/filter/sort or provision users                                    |
+| GET      | /api/admin/users/:userId              | Admin                    | User details and owner-store rating detail                             |
+| GET/POST | /api/admin/stores                     | Admin                    | List/search/sort or create stores                                      |
+| GET      | /api/owner/dashboard                  | Store Owner              | Assigned store and its raters                                          |
 
 Admin user query fields are name, email, address, role, sortBy, and sortDir. Store listing query fields are search, sortBy, and sortDir. Lists return all matching records, meeting the assignment's “view all” requirement without a hidden client cap.
 
@@ -117,7 +125,7 @@ Admin user query fields are name, email, address, role, sortBy, and sortDir. Sto
 
 Login verifies bcrypt credentials and sets an HTTP-only session cookie. The backend loads the current user for each protected request, requires a verified email, and checks role authorization. A role claim in a token is not enough on its own to authorize access.
 
-Public registration creates only a NORMAL_USER account. Only an Administrator can provision ADMIN or STORE_OWNER accounts. Store Owner data is derived from the authenticated user's server-side store association; no client-provided owner/store identifier decides access.
+Public registration creates only a NORMAL_USER account. A public form cannot choose its role. Administrators remain the only actors who can create privileged accounts, either through the protected management workflow or through a privileged invitation. Store Owner data is derived from the authenticated user's server-side store association; no client-provided owner/store identifier decides access.
 
 OTP flow:
 
@@ -129,6 +137,16 @@ OTP flow:
 6. Correct verification uses a serializable database transaction, creates the verified account, then deletes the pending record.
 
 The plaintext OTP is never returned by an API, included in a URL, or logged. The client supports six numeric boxes, paste, mobile numeric input, backspace navigation, masked email, and a resend countdown.
+
+### Privileged invitation flow
+
+1. An authenticated Administrator enters an email and selects `ADMIN` or `STORE_OWNER` from the protected invitation screen.
+2. The server creates a 256-bit URL-safe token and an eight-character code. It returns each secret once to that Administrator, stores only HMAC hashes, and invalidates any earlier unused invitation for the same email.
+3. The Administrator shares the confidential role-specific URL and code through trusted channels. The invite is email-bound, expires after 72 hours, and accepts at most five incorrect code attempts.
+4. The recipient completes the role-specific registration form. The backend takes the email and role from the invitation rather than the browser request, then uses a serializable transaction to consume the invitation and create a verified account.
+5. The recipient signs in on the same login page as every other user. Server-side role checks and role-aware routing send them only to their authorized workspace.
+
+For a deployment with no Administrator, the optional first-Administrator bootstrap uses `ADMIN_BOOTSTRAP_TOKEN`, `ADMIN_BOOTSTRAP_CODE`, and `ADMIN_BOOTSTRAP_EXPIRES_AT` as server-only values. It activates only when all three are present and the database has zero Administrator accounts. Set a future ISO-8601 expiry, use the matching `/register/admin/<token>` URL exactly once with the code, then remove all bootstrap variables and redeploy. This is an initialization aid, not a public sign-up path.
 
 ## Validation and safe errors
 
@@ -175,14 +193,15 @@ By default this starts PostgreSQL on port 5432 and MailHog SMTP on 1025, with th
 
 ## Environment variables
 
-| Variable                                                  | Purpose                                                                           |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| DATABASE_URL                                              | PostgreSQL connection URL                                                         |
-| NODE_ENV and PORT                                         | Runtime mode and API port; port defaults to 4000                                  |
-| CLIENT_ORIGIN                                             | Allowed client origin                                                             |
-| TRUST_PROXY                                               | Set true only behind a trusted reverse proxy                                      |
-| JWT_SECRET and JWT_EXPIRES_IN                             | Session signing configuration                                                     |
-| SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM | Email delivery configuration; SMTP_PASS is also accepted for Gmail compatibility. |
+| Variable                                                                | Purpose                                                                                              |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| DATABASE_URL                                                            | PostgreSQL connection URL                                                                            |
+| NODE_ENV and PORT                                                       | Runtime mode and API port; port defaults to 4000                                                     |
+| CLIENT_ORIGIN                                                           | Allowed client origin                                                                                |
+| TRUST_PROXY                                                             | Set true only behind a trusted reverse proxy                                                         |
+| JWT_SECRET and JWT_EXPIRES_IN                                           | Session signing configuration                                                                        |
+| SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM               | Email delivery configuration; SMTP_PASS is also accepted for Gmail compatibility.                    |
+| ADMIN_BOOTSTRAP_TOKEN, ADMIN_BOOTSTRAP_CODE, ADMIN_BOOTSTRAP_EXPIRES_AT | Three server-only values required together to enable the time-bounded first-Administrator bootstrap. |
 
 Production startup rejects missing DATABASE_URL, weak/default JWT secrets, and missing SMTP host/from configuration.
 
@@ -226,10 +245,10 @@ The automated suite covers validation, OTP rules and hashing, authorization, saf
 ## Production deployment
 
 1. Provision PostgreSQL and an SMTP provider.
-2. Set all environment variables, including a random 32+ character JWT_SECRET, production CLIENT_ORIGIN, SMTP values, and TRUST_PROXY=true only when appropriate.
+2. Set all environment variables, including a random 32+ character JWT_SECRET, production CLIENT_ORIGIN, SMTP values, and TRUST_PROXY=true only when appropriate. For an empty production database, add all three first-Administrator bootstrap values only for the initial setup.
 3. Run npm ci, npm run prisma:deploy, and npm run build. On a Node host, run npm prune --omit=dev only after migration and build.
-4. Start with npm start. Express serves the SPA from client/dist in production.
-5. Verify /api/health, SMTP-backed OTP delivery, each role login, rating update, Store Owner aggregation, Admin totals, and direct-route refresh in a browser.
+4. Start with npm start. Use the confidential first-Administrator URL and code once if needed, then remove the bootstrap variables and restart/redeploy. Express serves the SPA from client/dist in production.
+5. Verify /api/health, SMTP-backed OTP delivery, creation and redemption of privileged invitations, each role login, rating update, Store Owner aggregation, Admin totals, and direct-route refresh in a browser.
 
 The Dockerfile builds the production application. Compose is for local PostgreSQL and MailHog dependencies, not a complete production composition. See [DEPLOYMENT.md](DEPLOYMENT.md) for the precise container and reverse-proxy guidance.
 
@@ -239,12 +258,15 @@ The Dockerfile builds the production application. Compose is for local PostgreSQ
 - Session cookies are HTTP-only, SameSite=Lax, and Secure in production.
 - Helmet headers, a JSON request-size limit, credentialed CORS policy, rate limiting, safe error responses, and no raw secrets in source are used.
 - OTPs are cryptographic, hashed, expiring, retry-limited, and single-use.
+- Privileged invitation tokens and codes are separate secrets, HMAC-hashed at rest, expiring, one-time, email-bound, and redeemed atomically. Their role and email never come from the browser.
+- First-Administrator bootstrap values are server-only, valid only before the first Administrator exists and before their configured expiry, and must be removed after that account is created.
 - Database uniqueness and check constraints protect rating integrity.
 - The rate limiter is in-memory and per process; multi-instance production hosting should use a shared store such as Redis.
 
 ## Engineering decisions
 
 - The assignment does not prescribe how Store Owners are created or linked. An Administrator can provision a Store Owner, and an owner can be assigned to zero or one store.
+- The assignment requires public registration for normal users. The privileged invitation flow is an additional, invitation-only path; it never makes Administrator or Store Owner selection public.
 - The PDF's 20–60 “Name” rule is applied consistently to person and store names.
 - A rating update replaces the previous rating for a user/store pair rather than creating duplicates.
 - Administrator-provisioned accounts are verified through the trusted administrative workflow; self-registration requires OTP verification.

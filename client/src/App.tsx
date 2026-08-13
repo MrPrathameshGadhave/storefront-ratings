@@ -6,6 +6,7 @@ import { useAuth } from "./context/AuthContext";
 import { destinationForRole, type UserRole } from "./types";
 import {
   AdminDashboardPage,
+  AdminInvitationsPage,
   AdminStoreFormPage,
   AdminStoresPage,
   AdminUserDetailPage,
@@ -13,7 +14,12 @@ import {
   AdminUsersPage,
 } from "./pages/AdminPages";
 import { PasswordPage } from "./pages/AccountPages";
-import { LoginPage, RegisterPage, VerifyEmailPage } from "./pages/AuthPages";
+import {
+  LoginPage,
+  PrivilegedInviteRegisterPage,
+  RegisterPage,
+  VerifyEmailPage,
+} from "./pages/AuthPages";
 import { OwnerDashboardPage } from "./pages/OwnerDashboardPage";
 import { ForbiddenPage, NotFoundPage } from "./pages/StatusPages";
 import { StoreDirectoryPage } from "./pages/StoreDirectoryPage";
@@ -108,6 +114,14 @@ export default function App() {
         <Route element={<PublicOnlyRoute />}>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route
+            path="/register/admin/:token"
+            element={<PrivilegedInviteRegisterPage expectedRole="ADMIN" />}
+          />
+          <Route
+            path="/register/store-owner/:token"
+            element={<PrivilegedInviteRegisterPage expectedRole="STORE_OWNER" />}
+          />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
         </Route>
         <Route element={<ProtectedRoute />}>
@@ -121,6 +135,7 @@ export default function App() {
             </Route>
             <Route element={<ProtectedRoute allowedRoles={["ADMIN"]} />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
+              <Route path="/admin/invitations" element={<AdminInvitationsPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/users/new" element={<AdminUserFormPage />} />
               <Route path="/admin/users/:id" element={<AdminUserDetailPage />} />

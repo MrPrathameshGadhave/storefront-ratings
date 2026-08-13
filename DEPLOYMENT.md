@@ -64,18 +64,19 @@ Use cp .env.example .env instead of the first command on macOS/Linux.
 
 Copy .env.example rather than creating a new environment file from memory. The current variable names are:
 
-| Variable                 | Purpose                                                                                                                                 |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| DATABASE_URL             | PostgreSQL connection URL.                                                                                                              |
-| NODE_ENV                 | Runtime mode. Use production for deployed builds.                                                                                       |
-| PORT                     | Express port; defaults to 4000.                                                                                                         |
-| CLIENT_ORIGIN            | Allowed client origin for credentialed CORS.                                                                                            |
-| TRUST_PROXY              | Set to true only behind a trusted reverse proxy that supplies client IP information.                                                    |
-| JWT_SECRET               | Unique session-signing secret. Production rejects example/default values and values shorter than 32 characters.                         |
-| JWT_EXPIRES_IN           | Session lifetime; defaults to 8h.                                                                                                       |
-| SMTP_HOST, SMTP_PORT     | SMTP server hostname and port.                                                                                                          |
-| SMTP_USER, SMTP_PASSWORD | SMTP credentials when the provider needs them. SMTP_PASS is also accepted for Gmail compatibility; prefer SMTP_PASSWORD for new setups. |
-| SMTP_FROM                | Sender displayed on verification emails.                                                                                                |
+| Variable                                                                | Purpose                                                                                                                                 |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| DATABASE_URL                                                            | PostgreSQL connection URL.                                                                                                              |
+| NODE_ENV                                                                | Runtime mode. Use production for deployed builds.                                                                                       |
+| PORT                                                                    | Express port; defaults to 4000.                                                                                                         |
+| CLIENT_ORIGIN                                                           | Allowed client origin for credentialed CORS.                                                                                            |
+| TRUST_PROXY                                                             | Set to true only behind a trusted reverse proxy that supplies client IP information.                                                    |
+| JWT_SECRET                                                              | Unique session-signing secret. Production rejects example/default values and values shorter than 32 characters.                         |
+| JWT_EXPIRES_IN                                                          | Session lifetime; defaults to 8h.                                                                                                       |
+| SMTP_HOST, SMTP_PORT                                                    | SMTP server hostname and port.                                                                                                          |
+| SMTP_USER, SMTP_PASSWORD                                                | SMTP credentials when the provider needs them. SMTP_PASS is also accepted for Gmail compatibility; prefer SMTP_PASSWORD for new setups. |
+| SMTP_FROM                                                               | Sender displayed on verification emails.                                                                                                |
+| ADMIN_BOOTSTRAP_TOKEN, ADMIN_BOOTSTRAP_CODE, ADMIN_BOOTSTRAP_EXPIRES_AT | Three server-only values that must be set together to enable the first-Administrator bootstrap.                                         |
 
 The local example targets the services in compose:
 
@@ -90,7 +91,24 @@ SMTP_PORT=1025
 SMTP_FROM="Storefront Ratings <no-reply@storefront-ratings.local>"
 ```
 
-Never commit a populated .env file, database password, JWT secret, or SMTP password.
+Never commit a populated .env file, database password, JWT secret, SMTP password, invitation token/code, or bootstrap value.
+
+### First-Administrator bootstrap
+
+Public registration is intentionally limited to `NORMAL_USER`. For a brand-new database with no
+Administrator, set all three values below in the **server environment** for a short, future-dated
+window:
+
+| Variable                     | Requirement                                                                        |
+| ---------------------------- | ---------------------------------------------------------------------------------- |
+| `ADMIN_BOOTSTRAP_TOKEN`      | High-entropy confidential URL token.                                               |
+| `ADMIN_BOOTSTRAP_CODE`       | Separate high-entropy registration code.                                           |
+| `ADMIN_BOOTSTRAP_EXPIRES_AT` | Future ISO-8601 timestamp; the bootstrap is disabled when it is absent or expired. |
+
+Deploy/restart after setting the values, open `https://your-domain.example/register/admin/<token>`,
+and enter the matching code to create the first Administrator. The bootstrap is valid only while the
+database has zero `ADMIN` users. Immediately delete **all three** values and deploy/restart again.
+Do not put the URL or code in source control, browser screenshots, tickets, or runtime logs.
 
 ## Production deployment on Vercel
 
@@ -103,15 +121,16 @@ Before deploying, provision a **managed PostgreSQL database**. A local Docker da
 reachable from Vercel. Add these environment variables in the Vercel project's **Production**
 environment (and Preview too if preview testing is desired):
 
-| Variable                                                            | Production value                                                                 |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `NODE_ENV`                                                          | `production`                                                                     |
-| `DATABASE_URL`                                                      | Managed PostgreSQL connection string, including `?schema=public`                 |
-| `JWT_SECRET`                                                        | New random secret of at least 32 characters                                      |
-| `JWT_EXPIRES_IN`                                                    | `8h`, or the chosen session lifetime                                             |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Real SMTP-provider configuration                                                 |
-| `TRUST_PROXY`                                                       | `true`                                                                           |
-| `CLIENT_ORIGIN`                                                     | The final Vercel production URL, such as `https://storefront-ratings.vercel.app` |
+| Variable                                                                      | Production value                                                                 |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `NODE_ENV`                                                                    | `production`                                                                     |
+| `DATABASE_URL`                                                                | Managed PostgreSQL connection string, including `?schema=public`                 |
+| `JWT_SECRET`                                                                  | New random secret of at least 32 characters                                      |
+| `JWT_EXPIRES_IN`                                                              | `8h`, or the chosen session lifetime                                             |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`           | Real SMTP-provider configuration                                                 |
+| `TRUST_PROXY`                                                                 | `true`                                                                           |
+| `CLIENT_ORIGIN`                                                               | The final Vercel production URL, such as `https://storefront-ratings.vercel.app` |
+| `ADMIN_BOOTSTRAP_TOKEN`, `ADMIN_BOOTSTRAP_CODE`, `ADMIN_BOOTSTRAP_EXPIRES_AT` | Set all three only for a new database's short-lived first-Administrator setup.   |
 
 Then:
 
@@ -120,8 +139,13 @@ Then:
    same production `DATABASE_URL` in a secure shell or deployment job.
 3. Deploy to production. Vercel runs `npm run build`, which generates Prisma Client and builds the
    API and client.
-4. Visit `/api/health`, then test registration, a real SMTP inbox delivery, login, the three role
-   dashboards, a rating update, and a direct-route refresh.
+4. If the database has no Administrator, follow the first-Administrator bootstrap steps above, then
+   remove all three bootstrap values and redeploy.
+5. Sign in as an Administrator and issue one email-bound Administrator invitation and one Store
+   Owner invitation. Share each confidential URL and code separately, redeem them, and verify that
+   the shared login sends each account to its correct role workspace.
+6. Visit `/api/health`, then test normal-user registration, a real SMTP inbox delivery, a rating
+   update, the three role dashboards, and a direct-route refresh.
 
 Use a real production SMTP provider and a fresh app password or API credential. Never add those
 credentials to Git, `vercel.json`, documentation, or client-side environment variables.
@@ -129,7 +153,7 @@ credentials to Git, `vercel.json`, documentation, or client-side environment var
 ## Production deployment on a Node host
 
 1. Provision PostgreSQL and an SMTP provider.
-2. Set production values for all required environment variables. Use a random JWT_SECRET with at least 32 characters, a real SMTP_HOST and SMTP_FROM, and the deployed client origin.
+2. Set production values for all required environment variables. Use a random JWT_SECRET with at least 32 characters, a real SMTP_HOST and SMTP_FROM, and the deployed client origin. For a first Administrator only, add all three bootstrap values with a short future expiry.
 3. Run the database migration before starting the new version.
 4. Build the server and client.
 5. Remove development dependencies only after migration and build, then start the process.
@@ -152,7 +176,7 @@ Before accepting a deployment, verify:
 curl -i https://your-domain.example/api/health
 ```
 
-Then run the registration/OTP flow, sign in with each role, create/update a rating, verify the Store Owner aggregation, verify Admin totals, and refresh a direct client route. A complete browser end-to-end smoke test still needs to be performed against the selected deployment.
+Then run the normal registration/OTP flow, create and redeem privileged invitations, sign in with each role, create/update a rating, verify the Store Owner aggregation, verify Admin totals, and refresh a direct client route. A complete browser end-to-end smoke test still needs to be performed against the selected deployment.
 
 ## Docker image
 

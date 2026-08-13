@@ -60,6 +60,25 @@ export const adminUserSchema = registrationSchema.extend({
   role: z.enum(["ADMIN", "NORMAL_USER", "STORE_OWNER"]),
 });
 
+export const privilegedInvitationSchema = z.object({
+  email: normalizedEmail,
+  role: z.enum(["ADMIN", "STORE_OWNER"]),
+});
+
+export const privilegedInvitationRegistrationSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/, "Enter the eight-character invitation code."),
+  name: nameSchema,
+  address: addressSchema,
+  password: passwordSchema,
+  // Present only for the one-time, environment-backed first-administrator
+  // bootstrap. Database invitations always bind the email server-side.
+  email: normalizedEmail.optional(),
+});
+
 export const storeSchema = z.object({
   name: z
     .string()

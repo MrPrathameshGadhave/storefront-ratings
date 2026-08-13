@@ -6,7 +6,7 @@ Statuses are evidence-based:
 - **Implemented** means the feature is present in the codebase but has not received dedicated end-to-end evidence for every UI path.
 - **Pending external validation** means the required proof depends on the final public deployment or an external-provider inbox.
 
-The latest default automated result is 74 passing tests with 2 real-database integration tests safely skipped by default. Those integration tests passed when explicitly run against an isolated PostgreSQL database. Local migration/seed, MailHog delivery, browser registration/OTP verification, and external SMTP authentication also passed.
+The latest default automated result is 77 passing tests with 2 real-database integration tests safely skipped by default. Those integration tests passed when explicitly run against an isolated PostgreSQL database. Local migration/seed, MailHog delivery, browser registration/OTP verification, and external SMTP authentication also passed.
 
 | ID       | Requirement                                    | Source         | Implementation                             | Evidence                                                                                          | Status      |
 | -------- | ---------------------------------------------- | -------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- | ----------- |
@@ -51,7 +51,7 @@ The latest default automated result is 74 passing tests with 2 real-database int
 | SEC-04   | Server-side auth/role authorization            | Delivery brief | Auth middleware and RBAC                   | 401/403 contract tests                                                                            | Verified    |
 | QUAL-01  | Client/server validation and feedback          | Delivery brief | Forms, error mapper, Zod                   | Validation tests; browser E2E pending                                                             | Implemented |
 | QUAL-02  | Responsive accessible stateful UI              | Delivery brief | Pages, components, styles                  | Source review; current browser E2E pending                                                        | Implemented |
-| QUAL-03  | Critical automated tests                       | Delivery brief | server/src test files                      | Latest recorded: 74 passed; 2 safe DB integration tests skipped by default; 2 passed when enabled | Verified    |
+| QUAL-03  | Critical automated tests                       | Delivery brief | server/src test files                      | Latest recorded: 77 passed; 2 safe DB integration tests skipped by default; 2 passed when enabled | Verified    |
 | OPS-01   | Environment/setup/build/deployment/health docs | Delivery brief | Docs, .env.example, Docker, health route   | Recorded schema/build checks; deployment smoke pending                                            | Implemented |
 | DOC-01   | Professional synchronized docs                 | Delivery brief | Root documentation                         | Documentation updated to actual ports, SMTP names, compose scope, and test status                 | Verified    |
 

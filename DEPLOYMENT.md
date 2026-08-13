@@ -194,7 +194,7 @@ Do not run the demo seed against a shared production database unless those demo 
 
 ## Verification status
 
-The latest recorded default test run had 74 passing tests and 2 safe real-database integration tests skipped by default. Those two tests passed when run against an explicitly isolated database. Lint, type checking, Prisma validation, and the production build also passed after the release fixes.
+The latest recorded default test run had 77 passing tests and 2 safe real-database integration tests skipped by default. Those two tests passed when run against an explicitly isolated database. Lint, type checking, Prisma validation, and the production build also passed after the release fixes.
 
 This workspace has also completed local PostgreSQL migration/seed, MailHog OTP delivery, and browser registration/OTP verification. The Vercel production deployment is live, its `/api/health` endpoint reports a connected Neon database, and direct SPA routes have been checked. External SMTP authentication is verified; confirm an actual external recipient-inbox delivery as the final acceptance test.
 

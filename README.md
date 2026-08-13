@@ -201,7 +201,7 @@ Never commit a populated `.env`, production connection string, JWT secret, or SM
 The following checks have passed in the current workspace:
 
 ```bash
-npm test                # 74 passed; 2 isolated real-database tests skipped by default
+npm test                # 77 passed; 2 isolated real-database tests skipped by default
 npm run lint
 npm run typecheck
 npx prisma validate

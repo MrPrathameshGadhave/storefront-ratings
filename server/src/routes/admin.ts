@@ -1,13 +1,26 @@
 import type { Prisma } from "@prisma/client";
 import { Router } from "express";
-import { auditStoreCreated, auditStoreOwnerAssigned, auditUserCreated } from "../lib/audit.js";
+import {
+  auditLog,
+  auditStoreCreated,
+  auditStoreOwnerAssigned,
+  auditUserCreated,
+} from "../lib/audit.js";
 import { AppError } from "../lib/app-error.js";
-import { hashPassword } from "../lib/crypto.js";
+import {
+  createInvitationCode,
+  createInvitationToken,
+  hashInvitationCode,
+  hashInvitationToken,
+  hashPassword,
+} from "../lib/crypto.js";
 import { sortDirection } from "../lib/query.js";
 import { prisma } from "../lib/prisma.js";
 import { allowRoles, authenticate, type AuthenticatedRequest } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { adminUserSchema, storeSchema } from "../schemas/account.js";
+import { adminUserSchema, privilegedInvitationSchema, storeSchema } from "../schemas/account.js";
+
+const PRIVILEGED_INVITATION_TTL_MS = 72 * 60 * 60 * 1000;
 
 const publicUser = (user: {
   id: string;
@@ -73,6 +86,73 @@ adminRouter.get("/dashboard", async (_req, res, next) => {
     next(error);
   }
 });
+
+adminRouter.post(
+  "/invitations",
+  validateBody(privilegedInvitationSchema),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const input = req.body as { email: string; role: "ADMIN" | "STORE_OWNER" };
+      const existingUser = await prisma.user.findUnique({
+        where: { email: input.email },
+        select: { id: true },
+      });
+      if (existingUser) {
+        throw new AppError(409, "EMAIL_UNAVAILABLE", "An account already uses this email address.");
+      }
+
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + PRIVILEGED_INVITATION_TTL_MS);
+      const token = createInvitationToken();
+      const code = createInvitationCode();
+
+      // Only the newest unredeemed invite for an email remains usable. The raw
+      // secrets are intentionally returned once to the authenticated creator
+      // and are never written to the database or audit log.
+      await prisma.privilegedInvitation.updateMany({
+        where: { email: input.email, usedAt: null, expiresAt: { gt: now } },
+        data: { expiresAt: now },
+      });
+      const invitation = await prisma.privilegedInvitation.create({
+        data: {
+          email: input.email,
+          role: input.role,
+          tokenHash: hashInvitationToken(token),
+          codeHash: hashInvitationCode(code),
+          expiresAt,
+          createdById: req.auth!.id,
+        },
+        select: { id: true, email: true, role: true, expiresAt: true },
+      });
+
+      auditLog({
+        action: "PRIVILEGED_INVITATION_CREATED",
+        actorId: req.auth!.id,
+        actorRole: "ADMIN",
+        resourceType: "INVITATION",
+        resourceId: invitation.id,
+        changes: {
+          email: invitation.email,
+          role: invitation.role,
+          expiresAt: invitation.expiresAt,
+        },
+        status: "SUCCESS",
+      });
+
+      res.status(201).json({
+        data: {
+          email: invitation.email,
+          role: invitation.role,
+          expiresAt: invitation.expiresAt,
+          token,
+          code,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 adminRouter.get("/users", async (req, res, next) => {
   try {

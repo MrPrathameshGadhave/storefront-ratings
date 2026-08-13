@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiFieldErrors, apiMessage, apiRequest } from "../lib/api";
 import {
   normalizeEmail,
@@ -21,8 +21,15 @@ import {
 } from "../lib/validation";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
-import { destinationForRole, getString, isRecord } from "../types";
-import { InlineAlert, useDocumentTitle } from "../components/ui";
+import {
+  destinationForRole,
+  getString,
+  isRecord,
+  isUserRole,
+  roleLabel,
+  type UserRole,
+} from "../types";
+import { InlineAlert, LoadingState, useDocumentTitle } from "../components/ui";
 
 interface InputFieldProps {
   id: string;
@@ -411,6 +418,307 @@ export function RegisterPage() {
       <p className="auth-card__footer">
         Already have an account? <Link to="/login">Sign in</Link>
       </p>
+    </AuthLayout>
+  );
+}
+
+type PrivilegedRole = Extract<UserRole, "ADMIN" | "STORE_OWNER">;
+
+interface InvitationDetails {
+  role: PrivilegedRole;
+  maskedEmail?: string;
+  expiresAt?: string;
+  requiresEmail: boolean;
+}
+
+interface InvitationRegistrationFields extends RegistrationFields {
+  code: string;
+  email: string;
+}
+
+const initialInvitationRegistration: InvitationRegistrationFields = {
+  ...initialRegistration,
+  code: "",
+  email: "",
+};
+
+function isPrivilegedRole(value: unknown): value is PrivilegedRole {
+  return isUserRole(value) && value !== "NORMAL_USER";
+}
+
+function parseInvitationDetails(value: unknown): InvitationDetails | null {
+  if (!isRecord(value) || !isPrivilegedRole(value.role)) {
+    return null;
+  }
+
+  const expiresAt = getString(value.expiresAt);
+  const maskedEmail = getString(value.maskedEmail);
+  return {
+    role: value.role,
+    ...(maskedEmail ? { maskedEmail } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+    requiresEmail: value.requiresEmail === true,
+  };
+}
+
+function formatInvitationExpiry(value: string | undefined): string {
+  if (!value) {
+    return "the stated expiry time";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) {
+    return "the scheduled expiry time";
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+export function PrivilegedInviteRegisterPage({ expectedRole }: { expectedRole: PrivilegedRole }) {
+  const { token = "" } = useParams();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [invitation, setInvitation] = useState<InvitationDetails | null>(null);
+  const [fields, setFields] = useState<InvitationRegistrationFields>(initialInvitationRegistration);
+  const [errors, setErrors] = useState<ValidationErrors>({});
+  const [formError, setFormError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    const loadInvitation = async () => {
+      if (!token) {
+        if (current) {
+          setFormError("This private registration link is incomplete.");
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      setIsLoading(true);
+      setFormError("");
+      try {
+        const response = await apiRequest<unknown>(
+          `/auth/invitations/${encodeURIComponent(token)}`,
+        );
+        const parsed = parseInvitationDetails(response);
+        if (!parsed || parsed.role !== expectedRole) {
+          throw new Error("The invitation does not match this registration page.");
+        }
+        if (current) {
+          setInvitation(parsed);
+        }
+      } catch (error) {
+        if (current) {
+          setFormError(
+            apiMessage(
+              error,
+              "This private registration link is invalid, expired, or already used.",
+            ),
+          );
+        }
+      } finally {
+        if (current) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadInvitation();
+    return () => {
+      current = false;
+    };
+  }, [expectedRole, token]);
+
+  const updateField =
+    (field: keyof InvitationRegistrationFields) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const value = event.target.value;
+      setFields((current) => ({ ...current, [field]: value }));
+      setErrors((current) => ({ ...current, [field]: "" }));
+    };
+
+  const updateInvitationCode = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const code = event.target.value.toUpperCase().replace(/\s/g, "").slice(0, 8);
+    setFields((current) => ({ ...current, code }));
+    setErrors((current) => ({ ...current, code: "" }));
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!invitation || !token) {
+      setFormError("This private registration link is no longer available.");
+      return;
+    }
+
+    const nextErrors: ValidationErrors = {};
+    if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/.test(fields.code.trim())) {
+      nextErrors.code = "Enter the eight-character registration code.";
+    }
+    const nameError = validateName(fields.name);
+    const emailError = invitation.requiresEmail ? validateEmail(fields.email) : "";
+    const addressError = validateAddress(fields.address);
+    const passwordError = validatePassword(fields.password);
+    const confirmationError = validatePasswordConfirmation(fields.confirmPassword, fields.password);
+    if (nameError) nextErrors.name = nameError;
+    if (emailError) nextErrors.email = emailError;
+    if (addressError) nextErrors.address = addressError;
+    if (passwordError) nextErrors.password = passwordError;
+    if (confirmationError) nextErrors.confirmPassword = confirmationError;
+    setErrors(nextErrors);
+    setFormError("");
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await apiRequest<unknown>(`/auth/invitations/${encodeURIComponent(token)}/register`, {
+        method: "POST",
+        body: JSON.stringify({
+          code: fields.code.trim(),
+          name: fields.name.trim(),
+          address: fields.address.trim(),
+          password: fields.password,
+          ...(invitation.requiresEmail ? { email: normalizeEmail(fields.email) } : {}),
+        }),
+      });
+      showToast(`${roleLabel(invitation.role)} account created. Sign in to continue.`, "success");
+      navigate("/login", { replace: true });
+    } catch (error) {
+      setErrors((current) => ({ ...current, ...apiFieldErrors(error) }));
+      setFormError(apiMessage(error, "We could not complete this private registration."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const roleName = roleLabel(expectedRole);
+  return (
+    <AuthLayout
+      title={`Complete ${roleName.toLowerCase()} registration`}
+      description="Use the confidential link and registration code supplied by a StoreRate administrator."
+    >
+      {isLoading ? <LoadingState label="Validating your invitation" /> : null}
+      {!isLoading && formError && !invitation ? (
+        <>
+          <InlineAlert>{formError}</InlineAlert>
+          <p className="auth-card__footer">
+            Already have an account? <Link to="/login">Sign in</Link>
+          </p>
+        </>
+      ) : null}
+      {!isLoading && invitation ? (
+        <>
+          {formError ? <InlineAlert>{formError}</InlineAlert> : null}
+          <InlineAlert tone="info">
+            This private invitation is for a {roleLabel(invitation.role).toLowerCase()} account.
+            Keep the link and registration code confidential.
+          </InlineAlert>
+          {invitation.requiresEmail ? (
+            <p className="field__hint">
+              This initial administrator invitation is not bound to an email address. Enter the
+              email address that should own the first administrator account below.
+            </p>
+          ) : null}
+          {invitation.maskedEmail || invitation.expiresAt ? (
+            <dl className="invite-summary">
+              {invitation.maskedEmail ? (
+                <div>
+                  <dt>Invited email</dt>
+                  <dd>{invitation.maskedEmail}</dd>
+                </div>
+              ) : null}
+              {invitation.expiresAt ? (
+                <div>
+                  <dt>Expires</dt>
+                  <dd>{formatInvitationExpiry(invitation.expiresAt)}</dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
+          <form className="form-stack" onSubmit={handleSubmit} noValidate>
+            <InputField
+              id="invite-code"
+              label="Registration code"
+              value={fields.code}
+              onChange={updateInvitationCode}
+              error={errors.code}
+              hint="Enter the eight-character code sent with this private invitation."
+              autoComplete="one-time-code"
+              maxLength={8}
+              required
+            />
+            {invitation.requiresEmail ? (
+              <InputField
+                id="invite-email"
+                label="Email address"
+                type="email"
+                value={fields.email}
+                onChange={updateField("email")}
+                error={errors.email}
+                hint="This first administrator registration is not pre-bound to an email address."
+                autoComplete="email"
+                required
+              />
+            ) : null}
+            <InputField
+              id="invite-name"
+              label="Full name"
+              value={fields.name}
+              onChange={updateField("name")}
+              error={errors.name}
+              hint="20-60 characters, as required for the platform."
+              autoComplete="name"
+              required
+            />
+            <InputField
+              id="invite-address"
+              label="Address"
+              value={fields.address}
+              onChange={updateField("address")}
+              error={errors.address}
+              hint="Up to 400 characters."
+              autoComplete="street-address"
+              maxLength={400}
+              multiline
+              required
+            />
+            <PasswordInput
+              id="invite-password"
+              label="Password"
+              value={fields.password}
+              onChange={updateField("password")}
+              error={errors.password}
+              hint="8-16 characters, including an uppercase letter and a special character."
+              autoComplete="new-password"
+              required
+            />
+            <PasswordInput
+              id="invite-confirm-password"
+              label="Confirm password"
+              value={fields.confirmPassword}
+              onChange={updateField("confirmPassword")}
+              error={errors.confirmPassword}
+              autoComplete="new-password"
+              required
+            />
+            <button
+              className="button button--primary button--full"
+              type="submit"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Creating account…" : `Create ${roleName.toLowerCase()} account`}
+            </button>
+          </form>
+          <p className="auth-card__footer">
+            Already have an account? <Link to="/login">Sign in</Link>
+          </p>
+        </>
+      ) : null}
     </AuthLayout>
   );
 }

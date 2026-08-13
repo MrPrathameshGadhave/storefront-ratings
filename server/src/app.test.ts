@@ -2,8 +2,9 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { Prisma } from "@prisma/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { hashOtp } from "./lib/crypto.js";
+import { hashInvitationCode, hashInvitationToken, hashOtp } from "./lib/crypto.js";
 import { signSession } from "./lib/token.js";
+import { resetRateLimitsForTests } from "./middleware/rate-limit.js";
 
 const mocks = vi.hoisted(() => ({
   sendVerificationEmail: vi.fn(),
@@ -32,6 +33,12 @@ const mocks = vi.hoisted(() => ({
       findUnique: vi.fn(),
       delete: vi.fn(),
       deleteMany: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    privilegedInvitation: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
       update: vi.fn(),
       updateMany: vi.fn(),
     },
@@ -78,6 +85,7 @@ const validRegistration = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetRateLimitsForTests();
   mocks.sendVerificationEmail.mockResolvedValue(undefined);
   mocks.prisma.pendingRegistration.deleteMany.mockResolvedValue({ count: 1 });
   mocks.prisma.pendingRegistration.updateMany.mockResolvedValue({ count: 1 });
@@ -344,6 +352,167 @@ describe("API contract and security", () => {
 
     expect(response.status).toBe(403);
     expect(payload.error.code).toBe("FORBIDDEN");
+  });
+
+  it("lets an administrator create a return-once, email-bound privileged invitation", async () => {
+    const admin = { id: "admin-id", role: "ADMIN", emailVerified: true };
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    mocks.prisma.user.findUnique.mockResolvedValueOnce(admin).mockResolvedValueOnce(null);
+    mocks.prisma.privilegedInvitation.updateMany.mockResolvedValue({ count: 0 });
+    mocks.prisma.privilegedInvitation.create.mockResolvedValue({
+      id: "invitation-id",
+      email: "owner@example.com",
+      role: "STORE_OWNER",
+      expiresAt,
+    });
+    const cookie = `session=${signSession({ sub: admin.id, role: "ADMIN" })}`;
+
+    const response = await callApi("/api/admin/invitations", {
+      method: "POST",
+      cookie,
+      body: { email: "owner@example.com", role: "STORE_OWNER" },
+    });
+    const payload = (await response.json()) as {
+      data: { token: string; code: string; role: string; email: string };
+    };
+
+    expect(response.status).toBe(201);
+    expect(payload.data).toMatchObject({ email: "owner@example.com", role: "STORE_OWNER" });
+    expect(payload.data.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(payload.data.code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/);
+    const createInput = mocks.prisma.privilegedInvitation.create.mock.calls[0]?.[0] as {
+      data: { tokenHash: string; codeHash: string };
+    };
+    expect(createInput.data.tokenHash).not.toBe(payload.data.token);
+    expect(createInput.data.codeHash).not.toBe(payload.data.code);
+  });
+
+  it("returns only masked invitation details from a confidential registration token", async () => {
+    const token = "a".repeat(43);
+    mocks.prisma.privilegedInvitation.findUnique.mockResolvedValue({
+      email: "owner@example.com",
+      role: "STORE_OWNER",
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+    });
+
+    const response = await callApi(`/api/auth/invitations/${token}`);
+    const payload = (await response.json()) as {
+      data: { role: string; maskedEmail?: string; requiresEmail: boolean };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.data).toEqual({
+      role: "STORE_OWNER",
+      maskedEmail: "ow***@example.com",
+      expiresAt: expect.any(String),
+      requiresEmail: false,
+    });
+    expect(JSON.stringify(payload)).not.toContain("owner@example.com");
+    expect(mocks.prisma.privilegedInvitation.findUnique).toHaveBeenCalledWith({
+      where: { tokenHash: hashInvitationToken(token) },
+      select: { email: true, role: true, expiresAt: true, usedAt: true },
+    });
+  });
+
+  it("persists an incorrect invitation-code attempt before returning the error", async () => {
+    const token = "b".repeat(43);
+    const invitation = {
+      id: "invitation-id",
+      email: "owner@example.com",
+      role: "STORE_OWNER",
+      codeHash: hashInvitationCode("ABCDEFGH"),
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+      attempts: 0,
+    };
+    const transaction = {
+      privilegedInvitation: {
+        findUnique: vi.fn().mockResolvedValue(invitation),
+        update: vi.fn().mockResolvedValue(invitation),
+        updateMany: vi.fn(),
+      },
+      user: { findUnique: vi.fn(), create: vi.fn() },
+    };
+    mocks.prisma.privilegedInvitation.findUnique.mockResolvedValue(invitation);
+    mocks.prisma.$transaction.mockImplementation(async (callback: unknown) => {
+      if (typeof callback !== "function")
+        throw new Error("Expected interactive transaction callback.");
+      return callback(transaction);
+    });
+
+    const response = await callApi(`/api/auth/invitations/${token}/register`, {
+      method: "POST",
+      body: { ...validRegistration, code: "ABCDEFGJ" },
+    });
+    const payload = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("INVITATION_CODE_INVALID");
+    expect(transaction.privilegedInvitation.update).toHaveBeenCalledWith({
+      where: { id: invitation.id },
+      data: { attempts: { increment: 1 } },
+    });
+  });
+
+  it("creates only the email-bound, server-derived role when an invitation is redeemed", async () => {
+    const token = "c".repeat(43);
+    const invitation = {
+      id: "invitation-id",
+      email: "owner@example.com",
+      role: "STORE_OWNER",
+      codeHash: hashInvitationCode("ABCDEFGH"),
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+      attempts: 0,
+    };
+    const createdUser = {
+      id: "owner-id",
+      name: validRegistration.name,
+      email: invitation.email,
+      address: validRegistration.address,
+      role: "STORE_OWNER",
+      emailVerified: true,
+      createdAt: new Date("2026-08-14T00:00:00.000Z"),
+    };
+    const transaction = {
+      privilegedInvitation: {
+        findUnique: vi.fn().mockResolvedValue(invitation),
+        update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      user: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(createdUser),
+      },
+    };
+    mocks.prisma.privilegedInvitation.findUnique.mockResolvedValue(invitation);
+    mocks.prisma.$transaction.mockImplementation(async (callback: unknown) => {
+      if (typeof callback !== "function")
+        throw new Error("Expected interactive transaction callback.");
+      return callback(transaction);
+    });
+
+    const response = await callApi(`/api/auth/invitations/${token}/register`, {
+      method: "POST",
+      body: {
+        ...validRegistration,
+        email: "attacker@example.com",
+        role: "ADMIN",
+        code: "ABCDEFGH",
+      },
+    });
+    const payload = (await response.json()) as { data: { user: { email: string; role: string } } };
+
+    expect(response.status).toBe(201);
+    expect(payload.data.user).toMatchObject({ email: invitation.email, role: invitation.role });
+    expect(transaction.user.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        email: invitation.email,
+        role: invitation.role,
+        emailVerified: true,
+      }),
+    });
   });
 
   it("allows only a verified normal user to create or update a 1-5 rating", async () => {

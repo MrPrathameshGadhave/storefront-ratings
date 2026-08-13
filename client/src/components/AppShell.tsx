@@ -16,6 +16,7 @@ function navigationFor(role: "ADMIN" | "NORMAL_USER" | "STORE_OWNER"): Navigatio
       { to: "/admin", label: "Overview", end: true },
       { to: "/admin/users", label: "Users" },
       { to: "/admin/stores", label: "Stores" },
+      { to: "/admin/invitations", label: "Invitations" },
       { to: "/password", label: "Password" },
     ];
   }

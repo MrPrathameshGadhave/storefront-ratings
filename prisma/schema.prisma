@@ -26,6 +26,7 @@ model User {
 
   ratings     Rating[]
   ownedStores Store[]  @relation("StoreOwner")
+  createdInvitations PrivilegedInvitation[] @relation("InvitationCreator")
 
   @@index([role])
   @@index([name])
@@ -80,4 +81,24 @@ model PendingRegistration {
   updatedAt       DateTime @updatedAt
 
   @@index([expiresAt])
+}
+
+model PrivilegedInvitation {
+  id          String   @id @default(uuid())
+  tokenHash   String   @unique
+  codeHash    String
+  email       String   @db.VarChar(254)
+  role        Role
+  expiresAt   DateTime
+  usedAt      DateTime?
+  attempts    Int      @default(0)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User @relation("InvitationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([email])
+  @@index([expiresAt])
+  @@index([createdById])
 }

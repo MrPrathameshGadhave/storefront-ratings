@@ -12,37 +12,38 @@ Storefront Ratings gives each participant a focused experience: customers discov
 
 ## Reviewer snapshot
 
-| Area                   | What is implemented                                                                                                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Three-role product** | Normal User, System Administrator, and Store Owner experiences with server-enforced access control.                                                                           |
-| **Rating workflow**    | Search and sort stores; create or update exactly one 1–5 rating per signed-in normal user and store.                                                                          |
-| **Administration**     | Platform totals, user/store creation, store-owner assignment, filtering, sorting, and user-detail views.                                                                      |
-| **Email verification** | Registration is protected by a time-limited OTP with resend cooldown and attempt limits.                                                                                      |
-| **Quality controls**   | Client/server validation, password hashing, HTTP-only sessions, rate limits, loading states, error states, and responsive layouts.                                            |
-| **Evidence**           | Automated tests, an isolated real-PostgreSQL integration suite, linting, type checks, Prisma validation, a production build, and live Vercel route/health checks have passed. |
+| Area                      | What is implemented                                                                                                                                                           |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Three-role product**    | Normal User, System Administrator, and Store Owner experiences with server-enforced access control.                                                                           |
+| **Rating workflow**       | Search and sort stores; create or update exactly one 1–5 rating per signed-in normal user and store.                                                                          |
+| **Administration**        | Platform totals, user/store creation, store-owner assignment, filtering, sorting, and user-detail views.                                                                      |
+| **Email verification**    | Registration is protected by a time-limited OTP with resend cooldown and attempt limits.                                                                                      |
+| **Privileged onboarding** | An Administrator can issue email-bound, one-time Administrator or Store Owner invitations using a confidential link plus a separate code.                                     |
+| **Quality controls**      | Client/server validation, password hashing, HTTP-only sessions, rate limits, loading states, error states, and responsive layouts.                                            |
+| **Evidence**              | Automated tests, an isolated real-PostgreSQL integration suite, linting, type checks, Prisma validation, a production build, and live Vercel route/health checks have passed. |
 
 The application is deployed on Vercel with Neon PostgreSQL, and the production health endpoint reports a connected database. The final acceptance check is receiving a newly requested OTP in a real recipient inbox; the SMTP settings themselves are encrypted in Vercel and never committed.
 
 ## Assignment compliance at a glance
 
-| Requirement area        | Delivered behavior                                                                                                                                   |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| User accounts and roles | Administrators can create normal users, administrators, stores, and store-owner assignments. Normal users can self-register with email verification. |
-| Store discovery         | Normal users can browse, search by store name or address, inspect aggregate ratings, and sort results.                                               |
-| Store ratings           | A normal user can submit a rating from 1 to 5 and later replace it; the current personal rating and aggregate score are shown.                       |
-| Administrator tools     | Dashboard totals; searchable, sortable user and store lists; filters; user details; and owner-store context.                                         |
-| Store-owner tools       | A store owner can view the assigned store’s average rating and only the users who rated that store.                                                  |
-| Validation and security | Required fields, email format, password rules, address/name limits, rating boundaries, authentication, role authorization, and safe query handling.  |
+| Requirement area        | Delivered behavior                                                                                                                                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User accounts and roles | Administrators can create normal users, administrators, stores, and store-owner assignments. Public signup remains normal-user only; privileged invitations add a controlled onboarding path for Administrators and Store Owners. |
+| Store discovery         | Normal users can browse, search by store name or address, inspect aggregate ratings, and sort results.                                                                                                                            |
+| Store ratings           | A normal user can submit a rating from 1 to 5 and later replace it; the current personal rating and aggregate score are shown.                                                                                                    |
+| Administrator tools     | Dashboard totals; searchable, sortable user and store lists; filters; user details; and owner-store context.                                                                                                                      |
+| Store-owner tools       | A store owner can view the assigned store’s average rating and only the users who rated that store.                                                                                                                               |
+| Validation and security | Required fields, email format, password rules, address/name limits, rating boundaries, authentication, role authorization, and safe query handling.                                                                               |
 
 For the complete requirement-by-requirement mapping, see [REQUIREMENTS.md](REQUIREMENTS.md).
 
 ## Experiences by role
 
-| Role                     | Primary journey                                                                                                                 |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| **Normal User**          | Register → verify email OTP → sign in → search or sort stores → submit/update a rating → manage password.                       |
-| **System Administrator** | Sign in → review platform totals → create users and stores → assign a store owner → filter/sort records → inspect user details. |
-| **Store Owner**          | Sign in → see the assigned store’s rating average → review the customers who rated that store → manage password.                |
+| Role                     | Primary journey                                                                                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Normal User**          | Register → verify email OTP → sign in → search or sort stores → submit/update a rating → manage password.                                                                   |
+| **System Administrator** | Sign in → review platform totals → create users and stores → issue confidential privileged invitations → assign a store owner → filter/sort records → inspect user details. |
+| **Store Owner**          | Sign in → see the assigned store’s rating average → review the customers who rated that store → manage password.                                                            |
 
 The client provides role-aware navigation for a clear user experience. The Express API remains the security boundary: every private request validates the session and the caller’s role on the server.
 
@@ -146,23 +147,26 @@ REQUIREMENTS.md         Assignment traceability matrix
 
 Successful responses use `{ "data": ... }`; errors use `{ "error": { "code", "message", "fields"? } }`.
 
-| Method        | Route                           | Access        | Purpose                                                                    |
-| ------------- | ------------------------------- | ------------- | -------------------------------------------------------------------------- |
-| `GET`         | `/api/health`                   | Public        | Checks PostgreSQL connectivity.                                            |
-| `POST`        | `/api/auth/register`            | Public        | Starts normal-user registration and sends an OTP.                          |
-| `POST`        | `/api/auth/verify-email`        | Public        | Verifies the OTP and creates the normal-user account.                      |
-| `POST`        | `/api/auth/resend-verification` | Public        | Replaces the OTP after the cooldown.                                       |
-| `POST`        | `/api/auth/login`               | Public        | Sets the session cookie for a verified account.                            |
-| `POST`        | `/api/auth/logout`              | Authenticated | Clears the session.                                                        |
-| `GET`         | `/api/auth/me`                  | Authenticated | Returns the safe current-user profile.                                     |
-| `PATCH`       | `/api/auth/password`            | Authenticated | Changes the password after verifying the current password.                 |
-| `GET`         | `/api/stores`                   | Normal User   | Lists, searches, and sorts stores with aggregate and personal rating data. |
-| `PUT`         | `/api/stores/:storeId/rating`   | Normal User   | Creates or updates the caller’s rating.                                    |
-| `GET`         | `/api/admin/dashboard`          | Administrator | Returns user, store, and rating totals.                                    |
-| `GET`, `POST` | `/api/admin/users`              | Administrator | Lists/filter/sorts users or creates a managed account.                     |
-| `GET`         | `/api/admin/users/:userId`      | Administrator | Returns user details and owner-store summary when applicable.              |
-| `GET`, `POST` | `/api/admin/stores`             | Administrator | Lists/searches/sorts stores or creates and optionally assigns one.         |
-| `GET`         | `/api/owner/dashboard`          | Store Owner   | Returns only the caller’s assigned store and its raters.                   |
+| Method        | Route                                   | Access                   | Purpose                                                                       |
+| ------------- | --------------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |
+| `GET`         | `/api/health`                           | Public                   | Checks PostgreSQL connectivity.                                               |
+| `POST`        | `/api/auth/register`                    | Public                   | Starts normal-user registration and sends an OTP.                             |
+| `GET`         | `/api/auth/invitations/:token`          | Confidential link        | Validates an invitation without exposing a role picker or raw account data.   |
+| `POST`        | `/api/auth/invitations/:token/register` | Confidential link + code | Redeems a privileged invitation and creates the server-derived role.          |
+| `POST`        | `/api/auth/verify-email`                | Public                   | Verifies the OTP and creates the normal-user account.                         |
+| `POST`        | `/api/auth/resend-verification`         | Public                   | Replaces the OTP after the cooldown.                                          |
+| `POST`        | `/api/auth/login`                       | Public                   | Sets the session cookie for a verified account.                               |
+| `POST`        | `/api/auth/logout`                      | Authenticated            | Clears the session.                                                           |
+| `GET`         | `/api/auth/me`                          | Authenticated            | Returns the safe current-user profile.                                        |
+| `PATCH`       | `/api/auth/password`                    | Authenticated            | Changes the password after verifying the current password.                    |
+| `GET`         | `/api/stores`                           | Normal User              | Lists, searches, and sorts stores with aggregate and personal rating data.    |
+| `PUT`         | `/api/stores/:storeId/rating`           | Normal User              | Creates or updates the caller’s rating.                                       |
+| `GET`         | `/api/admin/dashboard`                  | Administrator            | Returns user, store, and rating totals.                                       |
+| `POST`        | `/api/admin/invitations`                | Administrator            | Issues a one-time Administrator or Store Owner invitation for a chosen email. |
+| `GET`, `POST` | `/api/admin/users`                      | Administrator            | Lists/filter/sorts users or creates a managed account.                        |
+| `GET`         | `/api/admin/users/:userId`              | Administrator            | Returns user details and owner-store summary when applicable.                 |
+| `GET`, `POST` | `/api/admin/stores`                     | Administrator            | Lists/searches/sorts stores or creates and optionally assigns one.            |
+| `GET`         | `/api/owner/dashboard`                  | Store Owner              | Returns only the caller’s assigned store and its raters.                      |
 
 Detailed request and response contracts are documented in [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md).
 
@@ -171,6 +175,9 @@ Detailed request and response contracts are documented in [PROJECT_DOCUMENTATION
 - Passwords are hashed with bcrypt; they are never returned by the API.
 - Sessions use signed JWTs in HTTP-only cookies, reducing exposure to client-side script access.
 - OTPs are HMAC-hashed before storage, expire, enforce attempt limits, and use a resend cooldown.
+- The public registration form always creates `NORMAL_USER`; the server derives an elevated role only from a valid Administrator-issued invitation.
+- Invitation URL tokens and eight-character codes are HMAC-hashed at rest, expire after 72 hours, are single-use, and stop after repeated incorrect code attempts.
+- A one-time, environment-backed first-Administrator bootstrap is available only while no Administrator exists; remove its secrets immediately after use.
 - Authentication endpoints are rate-limited.
 - Zod validates request inputs on the server; the client mirrors important rules for immediate feedback.
 - Role checks are enforced per protected endpoint, not only by the UI.
@@ -181,18 +188,19 @@ Detailed request and response contracts are documented in [PROJECT_DOCUMENTATION
 
 Copy [.env.example](.env.example) and replace all development placeholders before production use.
 
-| Variable                     | Purpose                                                                                                        |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`               | PostgreSQL connection string.                                                                                  |
-| `NODE_ENV`                   | Runtime mode; production enables secure session cookies.                                                       |
-| `PORT`                       | API port; defaults to `4000`.                                                                                  |
-| `CLIENT_ORIGIN`              | Allowed browser origin for credentialed CORS.                                                                  |
-| `TRUST_PROXY`                | Set `true` only when a trusted reverse proxy correctly supplies client IP headers.                             |
-| `JWT_SECRET`                 | Long, unique server secret; production requires at least 32 characters and rejects the example value.          |
-| `JWT_EXPIRES_IN`             | JWT lifespan; defaults to `8h`.                                                                                |
-| `SMTP_HOST`, `SMTP_PORT`     | SMTP host and port; local defaults target MailHog.                                                             |
-| `SMTP_USER`, `SMTP_PASSWORD` | Provider credentials. `SMTP_PASS` is supported for Gmail compatibility; prefer `SMTP_PASSWORD` for new setups. |
-| `SMTP_FROM`                  | Sender shown on the verification email.                                                                        |
+| Variable                                                                      | Purpose                                                                                                                                                |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                                                | PostgreSQL connection string.                                                                                                                          |
+| `NODE_ENV`                                                                    | Runtime mode; production enables secure session cookies.                                                                                               |
+| `PORT`                                                                        | API port; defaults to `4000`.                                                                                                                          |
+| `CLIENT_ORIGIN`                                                               | Allowed browser origin for credentialed CORS.                                                                                                          |
+| `TRUST_PROXY`                                                                 | Set `true` only when a trusted reverse proxy correctly supplies client IP headers.                                                                     |
+| `JWT_SECRET`                                                                  | Long, unique server secret; production requires at least 32 characters and rejects the example value.                                                  |
+| `JWT_EXPIRES_IN`                                                              | JWT lifespan; defaults to `8h`.                                                                                                                        |
+| `SMTP_HOST`, `SMTP_PORT`                                                      | SMTP host and port; local defaults target MailHog.                                                                                                     |
+| `SMTP_USER`, `SMTP_PASSWORD`                                                  | Provider credentials. `SMTP_PASS` is supported for Gmail compatibility; prefer `SMTP_PASSWORD` for new setups.                                         |
+| `SMTP_FROM`                                                                   | Sender shown on the verification email.                                                                                                                |
+| `ADMIN_BOOTSTRAP_TOKEN`, `ADMIN_BOOTSTRAP_CODE`, `ADMIN_BOOTSTRAP_EXPIRES_AT` | Three server-only values for a deliberately time-bounded first-Administrator bootstrap. Set all three together only for an otherwise empty deployment. |
 
 Never commit a populated `.env`, production connection string, JWT secret, or SMTP credentials.
 
@@ -236,9 +244,10 @@ The public deployment is live at [storefront-ratings.vercel.app](https://storefr
 Before submission, complete this final smoke-test checklist:
 
 1. Register a normal-user account and confirm the OTP arrives in its recipient inbox.
-2. Verify the OTP, sign in, and submit or update a store rating.
-3. Sign in with each assigned role and verify its dashboard scope.
-4. Refresh a direct route such as `/register` or `/login` to confirm SPA routing remains intact.
+2. If this is a fresh database, use the one-time Administrator bootstrap link and code, sign in, then delete the bootstrap environment variables and redeploy.
+3. From the Administrator invitation screen, create and redeem one Administrator and one Store Owner invitation; confirm the shared login sends each role to its own dashboard.
+4. Verify the OTP, sign in as a normal user, and submit or update a store rating.
+5. Refresh a direct route such as `/register` or `/login` to confirm SPA routing remains intact.
 
 ## Further reading
 

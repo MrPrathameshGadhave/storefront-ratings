@@ -29,7 +29,11 @@ export const createApp = (): express.Express => {
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());
   app.use(cacheControl);
-  if (env.nodeEnv !== "test") app.use(morgan("tiny"));
+  if (env.nodeEnv !== "test") {
+    // Invitation URLs are bearer secrets. Morgan's default `:url` token would
+    // otherwise write them to platform logs, so omit those requests entirely.
+    app.use(morgan("tiny", { skip: (req) => req.path.startsWith("/api/auth/invitations/") }));
+  }
 
   app.use("/api/health", healthRouter);
   app.use("/api/auth", authRouter);

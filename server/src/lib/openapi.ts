@@ -60,6 +60,52 @@ export const openApiSpec = {
         },
       },
     },
+    "/auth/invitations/{token}": {
+      get: {
+        tags: ["Authentication"],
+        summary: "Validate a confidential privileged-registration invitation",
+        description:
+          "Returns only the role, masked recipient email, and expiry for a live invitation. The bearer token is not returned or logged.",
+        parameters: [{ $ref: "#/components/parameters/InvitationToken" }],
+        responses: {
+          "200": {
+            description: "A live administrator or store-owner invitation",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/InvitationDetailsResponse" },
+              },
+            },
+          },
+          "404": { $ref: "#/components/responses/InvitationNotAvailable" },
+          "410": { $ref: "#/components/responses/InvitationExpired" },
+          "429": { $ref: "#/components/responses/RateLimited" },
+        },
+      },
+    },
+    "/auth/invitations/{token}/register": {
+      post: {
+        tags: ["Authentication"],
+        summary: "Redeem a one-time privileged-registration invitation",
+        description:
+          "The role and recipient email are derived from the server-side invitation. A one-time first-administrator bootstrap additionally requires email when no administrator exists.",
+        parameters: [{ $ref: "#/components/parameters/InvitationToken" }],
+        requestBody: { $ref: "#/components/requestBodies/PrivilegedInvitationRegistration" },
+        responses: {
+          "201": {
+            description: "Verified privileged account created; invite is consumed",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/UserResponse" } },
+            },
+          },
+          "400": { $ref: "#/components/responses/InvitationCodeInvalid" },
+          "404": { $ref: "#/components/responses/InvitationNotAvailable" },
+          "409": { $ref: "#/components/responses/Conflict" },
+          "410": { $ref: "#/components/responses/InvitationExpired" },
+          "422": { $ref: "#/components/responses/ValidationError" },
+          "429": { $ref: "#/components/responses/RateLimited" },
+        },
+      },
+    },
     "/auth/verify-email": {
       post: {
         tags: ["Authentication"],
@@ -247,6 +293,30 @@ export const openApiSpec = {
         },
       },
     },
+    "/admin/invitations": {
+      post: {
+        tags: ["Administration"],
+        summary: "Create a confidential privileged-registration invitation",
+        description:
+          "Creates a one-time, 72-hour invitation for an administrator or store owner. The raw link token and code are returned only in this initial administrator-only response and are never persisted.",
+        security: [{ sessionCookie: [] }],
+        requestBody: { $ref: "#/components/requestBodies/PrivilegedInvitation" },
+        responses: {
+          "201": {
+            description: "Invitation created; copy the returned token and code immediately",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/PrivilegedInvitationCreatedResponse" },
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Unauthenticated" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "409": { $ref: "#/components/responses/EmailUnavailable" },
+          "422": { $ref: "#/components/responses/ValidationError" },
+        },
+      },
+    },
     "/admin/users": {
       get: {
         tags: ["Administration"],
@@ -405,6 +475,13 @@ export const openApiSpec = {
         required: true,
         schema: { type: "string", format: "uuid" },
       },
+      InvitationToken: {
+        name: "token",
+        in: "path",
+        required: true,
+        schema: { type: "string", minLength: 32 },
+        description: "Confidential opaque invitation bearer token.",
+      },
       Search: {
         name: "search",
         in: "query",
@@ -488,9 +565,26 @@ export const openApiSpec = {
         required: true,
         content: { "application/json": { schema: { $ref: "#/components/schemas/StoreRequest" } } },
       },
+      PrivilegedInvitation: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/PrivilegedInvitationRequest" },
+          },
+        },
+      },
+      PrivilegedInvitationRegistration: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/PrivilegedInvitationRegistrationRequest" },
+          },
+        },
+      },
     },
     schemas: {
       Role: { type: "string", enum: ["ADMIN", "NORMAL_USER", "STORE_OWNER"] },
+      PrivilegedInvitationRole: { type: "string", enum: ["ADMIN", "STORE_OWNER"] },
       User: {
         type: "object",
         required: ["id", "name", "email", "address", "role", "emailVerified", "createdAt"],
@@ -659,6 +753,33 @@ export const openApiSpec = {
           },
         ],
       },
+      PrivilegedInvitationRequest: {
+        type: "object",
+        required: ["email", "role"],
+        properties: {
+          email: { type: "string", format: "email" },
+          role: { $ref: "#/components/schemas/PrivilegedInvitationRole" },
+        },
+      },
+      PrivilegedInvitationRegistrationRequest: {
+        type: "object",
+        required: ["code", "name", "address", "password"],
+        properties: {
+          code: {
+            type: "string",
+            pattern: "^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$",
+          },
+          name: { type: "string", minLength: 20, maxLength: 60 },
+          address: { type: "string", minLength: 1, maxLength: 400 },
+          password: { type: "string", minLength: 8, maxLength: 16 },
+          email: {
+            type: "string",
+            format: "email",
+            description:
+              "Omit for a database invitation; required only by the one-time first-administrator bootstrap.",
+          },
+        },
+      },
       StoreRequest: {
         type: "object",
         required: ["name", "email", "address"],
@@ -707,6 +828,42 @@ export const openApiSpec = {
               email: { type: "string", format: "email" },
               maskedEmail: { type: "string" },
               resendAvailableAt: { type: "string", format: "date-time" },
+            },
+          },
+        },
+      },
+      InvitationDetailsResponse: {
+        type: "object",
+        required: ["data"],
+        properties: {
+          data: {
+            type: "object",
+            required: ["role", "expiresAt", "requiresEmail"],
+            properties: {
+              role: { $ref: "#/components/schemas/PrivilegedInvitationRole" },
+              maskedEmail: { type: "string" },
+              expiresAt: { type: "string", format: "date-time" },
+              requiresEmail: { type: "boolean" },
+            },
+          },
+        },
+      },
+      PrivilegedInvitationCreatedResponse: {
+        type: "object",
+        required: ["data"],
+        properties: {
+          data: {
+            type: "object",
+            required: ["email", "role", "expiresAt", "token", "code"],
+            properties: {
+              email: { type: "string", format: "email" },
+              role: { $ref: "#/components/schemas/PrivilegedInvitationRole" },
+              expiresAt: { type: "string", format: "date-time" },
+              token: { type: "string", description: "Return-once confidential bearer token." },
+              code: {
+                type: "string",
+                description: "Return-once confidential eight-character code.",
+              },
             },
           },
         },
@@ -876,6 +1033,18 @@ export const openApiSpec = {
       },
       OtpInvalid: {
         description: "OTP is invalid, used, or expired",
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+      },
+      InvitationCodeInvalid: {
+        description: "The invitation code is incorrect",
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+      },
+      InvitationNotAvailable: {
+        description: "Invitation token is invalid, used, or unavailable",
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+      },
+      InvitationExpired: {
+        description: "Invitation has expired",
         content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
       },
       RateLimited: {

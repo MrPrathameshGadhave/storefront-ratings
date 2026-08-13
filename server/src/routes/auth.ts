@@ -1,8 +1,20 @@
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { env } from "../config/env.js";
+import { auditLog } from "../lib/audit.js";
 import { AppError } from "../lib/app-error.js";
-import { createOtp, hashOtp, hashPassword, verifyOtpHash, verifyPassword } from "../lib/crypto.js";
+import {
+  createOtp,
+  getAdminBootstrapExpiry,
+  hashInvitationToken,
+  hashOtp,
+  hashPassword,
+  matchesAdminBootstrapToken,
+  verifyAdminBootstrapCredentials,
+  verifyInvitationCodeHash,
+  verifyOtpHash,
+  verifyPassword,
+} from "../lib/crypto.js";
 import { sendVerificationEmail } from "../lib/email.js";
 import { prisma } from "../lib/prisma.js";
 import { signSession } from "../lib/token.js";
@@ -13,6 +25,7 @@ import {
   loginSchema,
   otpSchema,
   passwordChangeSchema,
+  privilegedInvitationRegistrationSchema,
   registrationSchema,
   resendSchema,
 } from "../schemas/account.js";
@@ -20,6 +33,8 @@ import {
 const TEN_MINUTES = 10 * 60 * 1000;
 const RESEND_COOLDOWN = 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
+const MAX_INVITATION_CODE_ATTEMPTS = 5;
+const CONFIDENTIAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
 const cookieOptions = () => ({
   httpOnly: true,
@@ -51,6 +66,28 @@ const maskEmail = (email: string): string => {
   const [local, domain] = email.split("@");
   const visible = local.slice(0, Math.min(2, local.length));
   return `${visible}${"*".repeat(Math.max(1, local.length - visible.length))}@${domain}`;
+};
+
+const confidentialTokenFromRequest = (token: unknown): string => {
+  if (typeof token !== "string" || !CONFIDENTIAL_TOKEN_PATTERN.test(token)) {
+    throw new AppError(
+      404,
+      "INVITATION_NOT_AVAILABLE",
+      "This registration invitation is not available.",
+    );
+  }
+  return token;
+};
+
+const invitationNotAvailable = (): AppError =>
+  new AppError(404, "INVITATION_NOT_AVAILABLE", "This registration invitation is not available.");
+
+type PrivilegedRegistrationInput = {
+  code: string;
+  name: string;
+  address: string;
+  password: string;
+  email?: string;
 };
 
 export const authRouter = Router();
@@ -138,6 +175,246 @@ authRouter.post(
         },
       });
     } catch (error) {
+      next(error);
+    }
+  },
+);
+
+authRouter.get(
+  "/invitations/:token",
+  createRateLimit(15 * 60 * 1000, 20),
+  async (req, res, next) => {
+    try {
+      const token = confidentialTokenFromRequest(req.params.token);
+      const invitation = await prisma.privilegedInvitation.findUnique({
+        where: { tokenHash: hashInvitationToken(token) },
+        select: { email: true, role: true, expiresAt: true, usedAt: true },
+      });
+      if (invitation) {
+        if (invitation.usedAt) throw invitationNotAvailable();
+        if (invitation.expiresAt <= new Date()) {
+          throw new AppError(
+            410,
+            "INVITATION_EXPIRED",
+            "This registration invitation has expired. Ask an administrator for a new one.",
+          );
+        }
+        if (invitation.role !== "ADMIN" && invitation.role !== "STORE_OWNER") {
+          throw invitationNotAvailable();
+        }
+        res.json({
+          data: {
+            role: invitation.role,
+            maskedEmail: maskEmail(invitation.email),
+            expiresAt: invitation.expiresAt,
+            requiresEmail: false,
+          },
+        });
+        return;
+      }
+
+      // The first administrator is bootstrapped with two environment-only
+      // secrets. It is intentionally available only while the platform has no
+      // administrator, and it never discloses an email address.
+      const bootstrapExpiry = getAdminBootstrapExpiry(token);
+      if (bootstrapExpiry) {
+        const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
+        if (adminCount === 0) {
+          res.json({
+            data: { role: "ADMIN", expiresAt: bootstrapExpiry, requiresEmail: true },
+          });
+          return;
+        }
+      }
+      throw invitationNotAvailable();
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+authRouter.post(
+  "/invitations/:token/register",
+  createRateLimit(15 * 60 * 1000, 10),
+  validateBody(privilegedInvitationRegistrationSchema),
+  async (req, res, next) => {
+    try {
+      const token = confidentialTokenFromRequest(req.params.token);
+      const input = req.body as PrivilegedRegistrationInput;
+      const tokenHash = hashInvitationToken(token);
+      const storedInvitation = await prisma.privilegedInvitation.findUnique({
+        where: { tokenHash },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          codeHash: true,
+          expiresAt: true,
+          usedAt: true,
+          attempts: true,
+        },
+      });
+
+      if (storedInvitation) {
+        const now = new Date();
+        const redemption = await prisma.$transaction(
+          async (transaction) => {
+            const invitation = await transaction.privilegedInvitation.findUnique({
+              where: { tokenHash },
+            });
+            if (!invitation || invitation.usedAt) throw invitationNotAvailable();
+            if (invitation.expiresAt <= now) {
+              throw new AppError(
+                410,
+                "INVITATION_EXPIRED",
+                "This registration invitation has expired. Ask an administrator for a new one.",
+              );
+            }
+            if (invitation.role !== "ADMIN" && invitation.role !== "STORE_OWNER") {
+              throw invitationNotAvailable();
+            }
+            if (invitation.attempts >= MAX_INVITATION_CODE_ATTEMPTS) {
+              return { kind: "attempts-exceeded" as const };
+            }
+            if (!verifyInvitationCodeHash(input.code, invitation.codeHash)) {
+              // Return a sentinel instead of throwing so this increment is
+              // committed by the interactive transaction. Throwing would roll
+              // it back and allow unlimited guesses.
+              await transaction.privilegedInvitation.update({
+                where: { id: invitation.id },
+                data: { attempts: { increment: 1 } },
+              });
+              return { kind: "invalid-code" as const };
+            }
+
+            const existingUser = await transaction.user.findUnique({
+              where: { email: invitation.email },
+              select: { id: true },
+            });
+            if (existingUser) {
+              throw new AppError(
+                409,
+                "EMAIL_UNAVAILABLE",
+                "An account already uses this email address.",
+              );
+            }
+
+            // Conditional consumption makes the token single-use even when two
+            // requests race. If this update cannot claim it, the transaction
+            // cannot create the privileged account.
+            const consumed = await transaction.privilegedInvitation.updateMany({
+              where: {
+                id: invitation.id,
+                usedAt: null,
+                expiresAt: { gt: now },
+                attempts: { lt: MAX_INVITATION_CODE_ATTEMPTS },
+              },
+              data: { usedAt: now },
+            });
+            if (consumed.count !== 1) {
+              throw new AppError(
+                409,
+                "INVITATION_CONFLICT",
+                "This invitation was just used. Sign in or ask an administrator for a new invitation.",
+              );
+            }
+
+            const user = await transaction.user.create({
+              data: {
+                name: input.name,
+                email: invitation.email,
+                address: input.address,
+                passwordHash: await hashPassword(input.password),
+                role: invitation.role,
+                emailVerified: true,
+              },
+            });
+            return { kind: "created" as const, invitationId: invitation.id, user };
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+        if (redemption.kind === "attempts-exceeded") {
+          throw new AppError(
+            429,
+            "INVITATION_CODE_ATTEMPTS_EXCEEDED",
+            "Too many incorrect invitation-code attempts. Ask an administrator for a new invitation.",
+          );
+        }
+        if (redemption.kind === "invalid-code") {
+          throw new AppError(400, "INVITATION_CODE_INVALID", "The invitation code is incorrect.");
+        }
+        const { user } = redemption;
+        auditLog({
+          action: "PRIVILEGED_INVITATION_REDEEMED",
+          actorId: user.id,
+          actorRole: user.role,
+          resourceType: "INVITATION",
+          resourceId: redemption.invitationId,
+          changes: { role: user.role },
+          status: "SUCCESS",
+        });
+        res.status(201).json({ data: { user: toPublicUser(user) } });
+        return;
+      }
+
+      if (!matchesAdminBootstrapToken(token)) throw invitationNotAvailable();
+      if (!input.email) {
+        throw new AppError(422, "VALIDATION_ERROR", "Please correct the highlighted fields.", {
+          email: "Email is required for the first administrator.",
+        });
+      }
+
+      const bootstrapUser = await prisma.$transaction(
+        async (transaction) => {
+          const adminCount = await transaction.user.count({ where: { role: "ADMIN" } });
+          if (adminCount > 0 || !verifyAdminBootstrapCredentials(token, input.code)) {
+            throw invitationNotAvailable();
+          }
+          const existingUser = await transaction.user.findUnique({
+            where: { email: input.email! },
+            select: { id: true },
+          });
+          if (existingUser) {
+            throw new AppError(
+              409,
+              "EMAIL_UNAVAILABLE",
+              "An account already uses this email address.",
+            );
+          }
+          return transaction.user.create({
+            data: {
+              name: input.name,
+              email: input.email!,
+              address: input.address,
+              passwordHash: await hashPassword(input.password),
+              role: "ADMIN",
+              emailVerified: true,
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      auditLog({
+        action: "PRIVILEGED_INVITATION_REDEEMED",
+        actorId: bootstrapUser.id,
+        actorRole: "ADMIN",
+        resourceType: "USER",
+        resourceId: bootstrapUser.id,
+        changes: { bootstrap: true, role: "ADMIN" },
+        status: "SUCCESS",
+      });
+      res.status(201).json({ data: { user: toPublicUser(bootstrapUser) } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+        next(
+          new AppError(
+            409,
+            "INVITATION_CONFLICT",
+            "This invitation was just used. Sign in or ask an administrator for a new invitation.",
+          ),
+        );
+        return;
+      }
       next(error);
     }
   },

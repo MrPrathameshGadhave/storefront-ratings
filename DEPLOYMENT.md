@@ -5,11 +5,12 @@
 Storefront Ratings is a TypeScript application with:
 
 - a React/Vite client;
-- an Express API and production SPA server;
-- PostgreSQL through Prisma;
+- an Express API deployed as a Vercel Function;
+- a Vite SPA served by Vercel from the same HTTPS origin;
+- managed Neon PostgreSQL through Prisma;
 - SMTP-based email verification.
 
-In development, Vite runs on port 5173 and proxies API calls to Express on port 4000. In production, Express serves both the API and the built client from one process on port 4000 by default.
+The current production URL is [storefront-ratings.vercel.app](https://storefront-ratings.vercel.app). In development, Vite runs on port 5173 and proxies API calls to Express on port 4000. On a conventional Node host, Express can also serve both the API and the built client from one process on port 4000.
 
 Docker Compose is deliberately limited to local dependencies: PostgreSQL and MailHog. It does not run the API or the web client.
 
@@ -93,10 +94,10 @@ Never commit a populated .env file, database password, JWT secret, or SMTP passw
 
 ## Production deployment on Vercel
 
-The repository is ready to run as one Vercel application. The root `server.ts` exports the Express
-app for Vercel's Node runtime, and `vercel.json` runs the production build. Vercel detects the
-Express entry point while the compiled React application and `/api` routes remain served from the
-same HTTPS origin.
+The repository is ready to run as one Vercel application. `api/[...path].ts` exports the Express
+app as a catch-all Vercel Function for `/api/*`, while `vercel.json` serves the compiled React
+application from `client/dist` and falls back to `index.html` for client-side routes. Both parts
+remain on the same HTTPS origin.
 
 Before deploying, provision a **managed PostgreSQL database**. A local Docker database is not
 reachable from Vercel. Add these environment variables in the Vercel project's **Production**
@@ -195,6 +196,6 @@ Do not run the demo seed against a shared production database unless those demo 
 
 The latest recorded default test run had 74 passing tests and 2 safe real-database integration tests skipped by default. Those two tests passed when run against an explicitly isolated database. Lint, type checking, Prisma validation, and the production build also passed after the release fixes.
 
-This workspace has also completed local PostgreSQL migration/seed, MailHog OTP delivery, and browser registration/OTP verification. External SMTP authentication is verified; before a public release, confirm an actual external inbox delivery, deploy over HTTPS, and complete a deployed smoke test.
+This workspace has also completed local PostgreSQL migration/seed, MailHog OTP delivery, and browser registration/OTP verification. The Vercel production deployment is live, its `/api/health` endpoint reports a connected Neon database, and direct SPA routes have been checked. External SMTP authentication is verified; confirm an actual external recipient-inbox delivery as the final acceptance test.
 
 For registration-specific setup and safe troubleshooting, see [REGISTRATION_ERROR_FIX.md](REGISTRATION_ERROR_FIX.md).

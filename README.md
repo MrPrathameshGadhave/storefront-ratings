@@ -6,20 +6,22 @@
 
 **Repository:** [github.com/MrPrathameshGadhave/storefront-ratings](https://github.com/MrPrathameshGadhave/storefront-ratings)
 
+**Live application:** [storefront-ratings.vercel.app](https://storefront-ratings.vercel.app)
+
 Storefront Ratings gives each participant a focused experience: customers discover and rate stores, store owners understand feedback for their own store, and administrators manage the whole platform from one place. The project is deliberately built as a complete full-stack submission, with validation, authorization, testing, local email verification, database migrations, and production-build support included.
 
 ## Reviewer snapshot
 
-| Area                   | What is implemented                                                                                                                                                                         |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Three-role product** | Normal User, System Administrator, and Store Owner experiences with server-enforced access control.                                                                                         |
-| **Rating workflow**    | Search and sort stores; create or update exactly one 1–5 rating per signed-in normal user and store.                                                                                        |
-| **Administration**     | Platform totals, user/store creation, store-owner assignment, filtering, sorting, and user-detail views.                                                                                    |
-| **Email verification** | Registration is protected by a time-limited OTP with resend cooldown and attempt limits.                                                                                                    |
-| **Quality controls**   | Client/server validation, password hashing, HTTP-only sessions, rate limits, loading states, error states, and responsive layouts.                                                          |
-| **Evidence**           | Automated tests, an isolated real-PostgreSQL integration suite, linting, type checks, Prisma validation, a production build, and browser registration verification have all passed locally. |
+| Area                   | What is implemented                                                                                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Three-role product** | Normal User, System Administrator, and Store Owner experiences with server-enforced access control.                                                                           |
+| **Rating workflow**    | Search and sort stores; create or update exactly one 1–5 rating per signed-in normal user and store.                                                                          |
+| **Administration**     | Platform totals, user/store creation, store-owner assignment, filtering, sorting, and user-detail views.                                                                      |
+| **Email verification** | Registration is protected by a time-limited OTP with resend cooldown and attempt limits.                                                                                      |
+| **Quality controls**   | Client/server validation, password hashing, HTTP-only sessions, rate limits, loading states, error states, and responsive layouts.                                            |
+| **Evidence**           | Automated tests, an isolated real-PostgreSQL integration suite, linting, type checks, Prisma validation, a production build, and live Vercel route/health checks have passed. |
 
-The implementation is locally complete. A public HTTPS deployment, final provider-inbox OTP confirmation, and Git remote publication are the remaining submission steps; see [Release readiness](#release-readiness).
+The application is deployed on Vercel with Neon PostgreSQL, and the production health endpoint reports a connected database. The final acceptance check is receiving a newly requested OTP in a real recipient inbox; the SMTP settings themselves are encrypted in Vercel and never committed.
 
 ## Assignment compliance at a glance
 
@@ -223,22 +225,20 @@ The default automated suite covers validation limits, rating bounds, OTP hashing
 | `npm run prisma:seed`     | Create/update the safe local demo records.                        |
 | `npm test`                | Run the Vitest suite.                                             |
 | `npm run lint`            | Run ESLint with zero warnings allowed.                            |
-| `npm run typecheck`       | Type-check server and client.                                     |
+| `npm run typecheck`       | Type-check the Vercel API wrapper, server, and client.            |
 | `npm run build`           | Generate Prisma client and build API/client production artifacts. |
 | `npm start`               | Start the compiled production API/server.                         |
 
-## Release readiness
+## Production status
 
-The repository includes a multi-stage [Dockerfile](Dockerfile) that builds the API and Vite client, then runs `server/dist/index.js` on port `4000`. Docker Compose is intentionally scoped to local PostgreSQL and MailHog; it does not deploy the application container.
+The public deployment is live at [storefront-ratings.vercel.app](https://storefront-ratings.vercel.app). Vercel serves the Vite SPA and the Express API from the same origin, while Neon supplies managed PostgreSQL. The repository includes a multi-stage [Dockerfile](Dockerfile) for a conventional Node deployment; Docker Compose remains intentionally scoped to local PostgreSQL and MailHog.
 
-Before public submission, the release environment should:
+Before submission, complete this final smoke-test checklist:
 
-1. Use managed PostgreSQL and a production SMTP provider.
-2. Define `DATABASE_URL`, a strong `JWT_SECRET`, `CLIENT_ORIGIN`, and SMTP variables.
-3. Set `TRUST_PROXY=true` only behind a trusted reverse proxy.
-4. Apply the committed migration with `npm run prisma:deploy`.
-5. Build/run with `npm run build && npm start`, or build the supplied Docker image.
-6. Smoke-test health, external OTP delivery, login, all three role dashboards, a rating update, and a direct-route refresh over HTTPS.
+1. Register a normal-user account and confirm the OTP arrives in its recipient inbox.
+2. Verify the OTP, sign in, and submit or update a store rating.
+3. Sign in with each assigned role and verify its dashboard scope.
+4. Refresh a direct route such as `/register` or `/login` to confirm SPA routing remains intact.
 
 ## Further reading
 

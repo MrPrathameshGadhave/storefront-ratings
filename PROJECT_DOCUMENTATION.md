@@ -6,6 +6,8 @@ Storefront Ratings is a role-based web application built for the FullStack Inter
 
 The selected permitted stack is React, Express, and PostgreSQL.
 
+The production application is live at [storefront-ratings.vercel.app](https://storefront-ratings.vercel.app), using Vercel for the SPA and Express function and Neon for PostgreSQL. Its health endpoint has been verified with the database connected.
+
 ## Requirement coverage
 
 The implementation includes the assignment's three roles, registration/login, ratings, search, sortable lists, administrator reporting, Store Owner reporting, required validation, and database constraints. It also includes responsive UI, secure OTP email verification, error/loading states, deployment configuration, automated tests, and traceability. See [REQUIREMENTS.md](REQUIREMENTS.md) for the evidence ledger.
@@ -219,7 +221,7 @@ The latest recorded results in this workspace are:
 - Local PostgreSQL migration/seed, MailHog OTP delivery, and browser registration/OTP verification: passed.
 - External SMTP authentication: passed; delivery to the selected provider inbox still needs one final confirmation.
 
-The automated suite covers validation, OTP rules and hashing, authorization, safe query behavior, and rating request contracts. The dedicated integration suite additionally exercises registration, verification, login, rating update, and role boundaries against real isolated PostgreSQL. Local environment checks exercised MailHog and the browser registration journey; public deployment and provider-inbox delivery remain separate release checks.
+The automated suite covers validation, OTP rules and hashing, authorization, safe query behavior, and rating request contracts. The dedicated integration suite additionally exercises registration, verification, login, rating update, and role boundaries against real isolated PostgreSQL. Local environment checks exercised MailHog and the browser registration journey. The public Vercel deployment has been checked for SPA routing, API routing, and a connected Neon database; provider-inbox delivery remains the final release check.
 
 ## Production deployment
 
@@ -249,7 +251,7 @@ The Dockerfile builds the production application. Compose is for local PostgreSQ
 
 ## Known limitations and next checks
 
-- Confirm delivery of a newly requested code in the selected external SMTP provider inbox, then deploy and smoke-test the public HTTPS URL.
+- Confirm delivery of a newly requested code in the selected external SMTP provider inbox.
 - The in-memory rate limiter should be replaced with a shared distributed limiter for horizontally scaled deployments.
 - Pagination may be added once it can preserve the assignment's “view all” requirement with an accessible UI.
 - Potential future work includes audit trails, account recovery, admin edit/delete workflows, an enabled database-backed integration run, and deployment screenshots.

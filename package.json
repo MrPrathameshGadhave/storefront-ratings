@@ -16,7 +16,7 @@
     "start": "node server/dist/index.js",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
-    "typecheck": "tsc --noEmit --project server/tsconfig.json && tsc --noEmit --project client/tsconfig.json",
+    "typecheck": "tsc --noEmit --project server/tsconfig.json && tsc --noEmit --project client/tsconfig.json && tsc --project api/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "format": "prettier --write .",

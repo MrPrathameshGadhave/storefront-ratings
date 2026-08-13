@@ -93,10 +93,10 @@ Never commit a populated .env file, database password, JWT secret, or SMTP passw
 
 ## Production deployment on Vercel
 
-The repository is ready to run as one Vercel application. The root `server.ts` exports the Express
-app for Vercel's Node runtime, and `vercel.json` runs the production build. Vercel detects the
-Express entry point while the compiled React application and `/api` routes remain served from the
-same HTTPS origin.
+The repository is ready to run as one Vercel application. `api/[...path].ts` exports the Express
+app as a catch-all Vercel Function for `/api/*`, while `vercel.json` serves the compiled React
+application from `client/dist` and falls back to `index.html` for client-side routes. Both parts
+remain on the same HTTPS origin.
 
 Before deploying, provision a **managed PostgreSQL database**. A local Docker database is not
 reachable from Vercel. Add these environment variables in the Vercel project's **Production**

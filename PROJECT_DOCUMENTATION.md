@@ -215,7 +215,7 @@ The latest recorded results in this workspace are:
 
 - ESLint: passed.
 - TypeScript: passed for client and server.
-- Vitest: 74 tests passed in the default suite; 2 real-database integration tests are skipped by default because they require an explicitly isolated test database. Those 2 tests also passed when explicitly run against the isolated database.
+- Vitest: 77 tests passed in the default suite; 2 real-database integration tests are skipped by default because they require an explicitly isolated test database. Those 2 tests also passed when explicitly run against the isolated database.
 - Prisma schema validation: passed.
 - Production API and Vite build: passed.
 - Local PostgreSQL migration/seed, MailHog OTP delivery, and browser registration/OTP verification: passed.

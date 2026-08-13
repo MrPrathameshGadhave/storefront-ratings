@@ -1,0 +1,63 @@
+# Requirements traceability
+
+Statuses are evidence-based:
+
+- **Verified** means a relevant automated, database-backed, browser, or build check completed in this workspace.
+- **Implemented** means the feature is present in the codebase but has not received dedicated end-to-end evidence for every UI path.
+- **Pending external validation** means the required proof depends on the final public deployment or an external-provider inbox.
+
+The latest default automated result is 74 passing tests with 2 real-database integration tests safely skipped by default. Those integration tests passed when explicitly run against an isolated PostgreSQL database. Local migration/seed, MailHog delivery, browser registration/OTP verification, and external SMTP authentication also passed.
+
+| ID       | Requirement                                    | Source         | Implementation                             | Evidence                                                                                          | Status      |
+| -------- | ---------------------------------------------- | -------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- | ----------- |
+| TECH-01  | React frontend                                 | PDF p.1        | client/src                                 | Typecheck, Vite build, and browser registration/OTP flow                                          | Verified    |
+| TECH-02  | Allowed backend framework: Express             | PDF p.1        | server/src                                 | Typecheck and API-contract tests                                                                  | Verified    |
+| TECH-03  | PostgreSQL/MySQL database choice               | PDF p.1        | Prisma schema and migrations               | Prisma schema validated; committed migration and local seed applied                               | Verified    |
+| CORE-01  | Users can rate registered stores               | PDF p.1        | StoreDirectoryPage and stores route        | Real database integration: rating create/update and aggregate reflection                          | Verified    |
+| CORE-02  | Rating range is 1–5                            | PDF p.1        | Zod schema, picker, DB check constraint    | Invalid range/unit contract tests                                                                 | Verified    |
+| AUTH-01  | One login with role-specific functionality     | PDF p.1        | auth routes, middleware, router guards     | Authentication/forbidden contract tests                                                           | Verified    |
+| AUTH-02  | Admin, Normal User, Store Owner roles          | PDF p.1        | Prisma Role and route guards               | Real isolated-database role boundary tests and local API journey                                  | Verified    |
+| AUTH-03  | Normal-user signup page                        | PDF p.1        | AuthPages and register route               | Browser registration/OTP verification with delivered MailHog message                              | Verified    |
+| ADM-01   | Admin adds stores, normal users, admin users   | PDF p.1        | Admin pages and admin routes               | Code/API present; real database flow pending                                                      | Implemented |
+| ADM-02   | Admin totals: users, stores, ratings           | PDF p.1        | Admin dashboard endpoint/UI                | Local real API journey confirmed dashboard totals                                                 | Verified    |
+| ADM-03   | Admin user fields: name/email/password/address | PDF p.1        | Admin form and shared schema               | Typecheck and validation tests                                                                    | Verified    |
+| ADM-04   | Admin stores show name/email/address/rating    | PDF p.1        | Admin stores page/API                      | Implementation present; browser/DB flow pending                                                   | Implemented |
+| ADM-05   | Admin user list shows name/email/address/role  | PDF p.1        | Admin users page/API                       | Implementation present; browser/DB flow pending                                                   | Implemented |
+| ADM-06   | Listing filters                                | PDF p.1        | Admin query routes and controls            | Whitelisted query logic tested; browser flow pending                                              | Implemented |
+| ADM-07   | User detail; owner rating detail               | PDF p.1        | Admin detail route/page                    | Implementation present; real DB flow pending                                                      | Implemented |
+| ADM-08   | Admin logout                                   | PDF p.1        | Shared app shell and logout route          | Endpoint/UI implementation present                                                                | Implemented |
+| USER-01  | Normal user signs up/logs in                   | PDF p.2        | Auth pages and endpoints                   | Browser registration/OTP flow and real API login                                                  | Verified    |
+| USER-02  | Signup fields                                  | PDF p.2        | Registration page and schema               | Validation unit tests                                                                             | Verified    |
+| USER-03  | Change password after login                    | PDF p.2        | PasswordPage and password route            | Endpoint/UI implementation present                                                                | Implemented |
+| USER-04  | View all registered stores                     | PDF p.2        | Stores route and directory UI              | No hidden 20-item cap; real DB/browser pending                                                    | Implemented |
+| USER-05  | Search stores by name/address                  | PDF p.2        | Stores route and search UI                 | Query implementation present; browser flow pending                                                | Implemented |
+| USER-06  | Overall/user rating plus submit/modify control | PDF p.2        | StoreDirectoryPage and stores DTO          | Implementation present; browser/DB flow pending                                                   | Implemented |
+| USER-07  | Submit/modify individual 1–5 rating            | PDF p.2        | Prisma upsert and rating dialog            | Upsert API contract and database constraint design                                                | Verified    |
+| USER-08  | Normal-user logout                             | PDF p.2        | Shared navigation and logout API           | Endpoint/UI implementation present                                                                | Implemented |
+| OWNER-01 | Store Owner login                              | PDF p.2        | Shared auth and route guard                | Role routing implementation; live journey pending                                                 | Implemented |
+| OWNER-02 | Owner password change                          | PDF p.2        | Shared password page/API                   | Endpoint/UI implementation present                                                                | Implemented |
+| OWNER-03 | Owner sees users who rated their store         | PDF p.2        | Owner dashboard endpoint                   | Real API journey confirmed scoped rater reflection                                                | Verified    |
+| OWNER-04 | Owner sees average rating                      | PDF p.2        | Owner API/dashboard                        | Real API journey confirmed aggregate reflection                                                   | Verified    |
+| OWNER-05 | Owner logout                                   | PDF p.2        | Shared navigation/API                      | Endpoint/UI implementation present                                                                | Implemented |
+| VAL-01   | Name 20–60 characters                          | PDF p.2        | Client/server schemas                      | Boundary validation tests                                                                         | Verified    |
+| VAL-02   | Address max 400                                | PDF p.2        | Client/server schemas                      | Validation tests                                                                                  | Verified    |
+| VAL-03   | Password 8–16, uppercase, special              | PDF p.2        | Client/server schemas                      | Unit tests                                                                                        | Verified    |
+| VAL-04   | Valid email                                    | PDF p.2        | Client/server schemas                      | Normalization/validation tests                                                                    | Verified    |
+| UX-01    | Sort ascending/descending in tables            | PDF p.2        | Sort parameters and controls               | Source/typecheck evidence; browser E2E pending                                                    | Implemented |
+| DATA-01  | Sound DB design                                | PDF p.2        | Relations, constraints, indexes, migration | Prisma validation plus applied migration and isolated database integration                        | Verified    |
+| SEC-01   | Secure OTP with ten-minute lifetime            | Delivery brief | PendingRegistration and auth routes        | OTP timing/expiry contract tests                                                                  | Verified    |
+| SEC-02   | Hashed, single-use OTP / five attempts         | Delivery brief | Crypto helper and verification transaction | Hash/lockout contract tests                                                                       | Verified    |
+| SEC-03   | 60-second resend and sensible throttling       | Delivery brief | Auth routes and rate limiter               | Cooldown/rate-limit tests                                                                         | Verified    |
+| SEC-04   | Server-side auth/role authorization            | Delivery brief | Auth middleware and RBAC                   | 401/403 contract tests                                                                            | Verified    |
+| QUAL-01  | Client/server validation and feedback          | Delivery brief | Forms, error mapper, Zod                   | Validation tests; browser E2E pending                                                             | Implemented |
+| QUAL-02  | Responsive accessible stateful UI              | Delivery brief | Pages, components, styles                  | Source review; current browser E2E pending                                                        | Implemented |
+| QUAL-03  | Critical automated tests                       | Delivery brief | server/src test files                      | Latest recorded: 74 passed; 2 safe DB integration tests skipped by default; 2 passed when enabled | Verified    |
+| OPS-01   | Environment/setup/build/deployment/health docs | Delivery brief | Docs, .env.example, Docker, health route   | Recorded schema/build checks; deployment smoke pending                                            | Implemented |
+| DOC-01   | Professional synchronized docs                 | Delivery brief | Root documentation                         | Documentation updated to actual ports, SMTP names, compose scope, and test status                 | Verified    |
+
+## Decisions
+
+- A Store Owner is associated with zero or one store. An Administrator can create a Store Owner account and assign that owner at store creation.
+- Public signup always creates NORMAL_USER; a public form cannot choose a role.
+- A rating is unique on user plus store, so resubmission updates the existing rating.
+- PostgreSQL defaults to port 5432 in compose. When another local program owns that port, set POSTGRES_PORT to an unused host port and update DATABASE_URL consistently.

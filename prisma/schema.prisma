@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  NORMAL_USER
+  STORE_OWNER
+}
+
+model User {
+  id            String   @id @default(uuid())
+  name          String   @db.VarChar(60)
+  email         String   @unique @db.VarChar(254)
+  address       String   @db.VarChar(400)
+  passwordHash  String
+  role          Role     @default(NORMAL_USER)
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ratings     Rating[]
+  ownedStores Store[]  @relation("StoreOwner")
+
+  @@index([role])
+  @@index([name])
+  @@index([email])
+}
+
+model Store {
+  id        String   @id @default(uuid())
+  name      String   @db.VarChar(60)
+  email     String   @unique @db.VarChar(254)
+  address   String   @db.VarChar(400)
+  ownerId   String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User?    @relation("StoreOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  ratings Rating[]
+
+  @@index([name])
+  @@index([address])
+}
+
+model Rating {
+  id        String   @id @default(uuid())
+  value     Int
+  userId    String
+  storeId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+  @@index([storeId])
+  @@index([userId])
+}
+
+model PendingRegistration {
+  id              String   @id @default(uuid())
+  name            String   @db.VarChar(60)
+  email           String   @unique @db.VarChar(254)
+  address         String   @db.VarChar(400)
+  passwordHash    String
+  otpHash         String
+  expiresAt       DateTime
+  attempts        Int      @default(0)
+  lastSentAt      DateTime @default(now())
+  otpRequestCount Int      @default(1)
+  usedAt          DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([expiresAt])
+}
